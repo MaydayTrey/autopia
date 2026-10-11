@@ -449,6 +449,19 @@ GITHUB TARGET (2026-10-12): targets/github.json = first KEYED file
   selected paths + transitively referenced components as spec_blob
   (hash still over the FULL doc, so any upstream change = new version;
   GitHub changes its spec often -> expect real version diffs here).
+  Run #38: 237 trials -> 248 verified, 11 REJECTED: the search endpoint
+  has its own 30 req/min quota; our 500ms spacing exhausted it, trials
+  recorded 403 'API rate limit exceeded', and verify correctly threw
+  every claim built on them out. Fixes (commit 1472122): http.ts treats
+  403 + x-ratelimit-remaining:0 as rate limiting and sleeps until
+  x-ratelimit-reset (cap 65s); targets get rate_overrides per path
+  (github.json: /search/repositories 2500ms), honored by exercise AND
+  verify. Run #39: 259 verified, 1 rejected (bad_auth on one endpoint
+  flip-flops 200/403: GitHub tolerates a malformed bearer on public
+  reads until the unauthenticated quota bites; honest drop), 12 spec
+  divergences: per_page/page accept 'abc' and sort/order/direction
+  accept undocumented enum values on issues/commits/releases/search.
+  The backoff fired once in verify (waited 34s, then reproduced).
   Contributor tier remains the route for APIs whose token cannot live
   in Actions secrets.
 
