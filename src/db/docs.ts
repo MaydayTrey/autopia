@@ -5,18 +5,127 @@
  * command, and the dashboard.
  *
  * Order: divergences from the spec first (the money view), then differences
- * from sibling tools, then every endpoint's verified behavior grouped by
- * parameter. Every line ends with the trial ids that back it.
+ * from sibling tools, undocumented rules, then per endpoint: what responses
+ * look like, general behavior, and request validation COLLAPSED: one line per
+ * parameter listing which probe values it rejects and accepts, and a single
+ * summary line for the endpoint when every parameter behaves the same way.
+ * Every line ends with the trial ids that back it.
  */
 import type { Db } from './client.js';
 import { toolKnowledge, type ClaimView } from './queries.js';
+
+const ev = (c: ClaimView | ClaimView[]) => `[${(Array.isArray(c) ? c : [c]).flatMap((x) => x.evidence.map((e) => `#${e.id}`)).filter((v, i, a) => a.indexOf(v) === i).join(', ')}]`;
+
+/** Human label for a validation probe, from the rule name in the claim key. */
+const PROBE_LABEL: Record<string, string> = {
+  wrong_type: 'a wrong-type value ("abc")',
+  enum_invalid: 'a value outside the documented enum',
+  null_value: 'the literal "null"',
+  empty_value: 'an empty value',
+  boundary_zero: '0',
+  boundary_negative: '-1',
+  boundary_max_int: '2147483648',
+  boundary_below_min: 'a value below the documented minimum',
+  boundary_above_max: 'a value just above the documented maximum',
+  boundary_far_above_max: 'a value far above the documented maximum',
+  boundary_long_string: 'a 2048-character string',
+  duplicate_param: 'the parameter twice',
+  pagination_zero: '0',
+  pagination_huge: '100000',
+  pagination_beyond: '999999999',
+};
+const VALIDATION_RULES = new Set(Object.keys(PROBE_LABEL));
+
+function ruleOf(c: ClaimView): string | null {
+  const m = c.claim_key.match(/^rule:([^:]+):/);
+  return m ? m[1] : null;
+}
+
+/** The status the PROBE trial showed (the last expectation; the first is the comparison base). */
+function probeStatus(c: ClaimView): number | null {
+  const last = c.evidence[c.evidence.length - 1];
+  return last ? last.status : null;
+}
+
+export interface ParamSummary {
+  param: string;
+  rejects: { label: string; status: number | null; claim: ClaimView }[];
+  accepts: { label: string; status: number | null; claim: ClaimView }[];
+  observes: ClaimView[];
+}
+
+/**
+ * Collapse per-probe validation claims into one summary per parameter.
+ * Pure, so it can be unit tested without a database.
+ */
+export function summarizeParameters(claims: ClaimView[]): ParamSummary[] {
+  const by = new Map<string, ParamSummary>();
+  for (const c of claims) {
+    if (!c.param) continue;
+    const rule = ruleOf(c);
+    const s = by.get(c.param) ?? { param: c.param, rejects: [], accepts: [], observes: [] };
+    by.set(c.param, s);
+    if (rule && VALIDATION_RULES.has(rule)) {
+      const item = { label: PROBE_LABEL[rule], status: probeStatus(c), claim: c };
+      if (c.verdict === 'rejects') s.rejects.push(item);
+      else if (c.verdict === 'accepts') s.accepts.push(item);
+      else s.observes.push(c);
+    } else {
+      s.observes.push(c);
+    }
+  }
+  return [...by.values()].sort((a, b) => a.param.localeCompare(b.param));
+}
+
+function statusGroups(items: ParamSummary['rejects']): string {
+  const g = new Map<string, { labels: string[]; claims: ClaimView[] }>();
+  for (const it of items) {
+    const k = it.status === null ? 'no response' : `HTTP ${it.status}`;
+    const cur = g.get(k) ?? { labels: [], claims: [] };
+    cur.labels.push(it.label);
+    cur.claims.push(it.claim);
+    g.set(k, cur);
+  }
+  return [...g.entries()].map(([status, v]) => `${v.labels.join(', ')} (${status}) ${ev(v.claims)}`).join('; ');
+}
+
+/** One line per parameter, or one summary line when every parameter rejects everything / accepts everything. */
+export function renderParameterLines(summaries: ParamSummary[]): string[] {
+  const lines: string[] = [];
+  const validated = summaries.filter((s) => s.rejects.length + s.accepts.length > 0);
+  const allReject = validated.filter((s) => s.accepts.length === 0);
+  const allAccept = validated.filter((s) => s.rejects.length === 0);
+  const mixed = validated.filter((s) => s.rejects.length > 0 && s.accepts.length > 0);
+
+  if (validated.length >= 3 && allReject.length === validated.length) {
+    const statuses = [...new Set(validated.flatMap((s) => s.rejects.map((r) => (r.status === null ? 'no response' : `HTTP ${r.status}`))))].join('/');
+    lines.push(`- All ${validated.length} probed parameters (${validated.map((s) => `\`${s.param}\``).join(', ')}) reject every invalid value tried (wrong type, null, empty, out of range, duplicates) with ${statuses}. ${ev(validated.flatMap((s) => s.rejects.map((r) => r.claim)))}`);
+  } else if (validated.length >= 3 && allAccept.length === validated.length) {
+    lines.push(`- All ${validated.length} probed parameters (${validated.map((s) => `\`${s.param}\``).join(', ')}) accept every invalid value tried without an error; the API does not validate them. ${ev(validated.flatMap((s) => s.accepts.map((r) => r.claim)))}`);
+  } else {
+    // Uniform ones get one line each but compact; mixed ones are spelled out.
+    if (validated.length >= 3 && allReject.length >= 2) {
+      const statuses = [...new Set(allReject.flatMap((s) => s.rejects.map((r) => (r.status === null ? 'no response' : `HTTP ${r.status}`))))].join('/');
+      lines.push(`- ${allReject.map((s) => `\`${s.param}\``).join(', ')} reject every invalid value tried with ${statuses}. ${ev(allReject.flatMap((s) => s.rejects.map((r) => r.claim)))}`);
+    } else {
+      for (const s of allReject) lines.push(`- \`${s.param}\` rejects ${statusGroups(s.rejects)}.`);
+    }
+    if (validated.length >= 3 && allAccept.length >= 2) {
+      lines.push(`- ${allAccept.map((s) => `\`${s.param}\``).join(', ')} accept every invalid value tried without an error. ${ev(allAccept.flatMap((s) => s.accepts.map((r) => r.claim)))}`);
+    } else {
+      for (const s of allAccept) lines.push(`- \`${s.param}\` accepts ${statusGroups(s.accepts)}.`);
+    }
+    for (const s of mixed) lines.push(`- \`${s.param}\` rejects ${statusGroups(s.rejects)}; but accepts ${statusGroups(s.accepts)}.`);
+  }
+  for (const s of summaries) for (const c of s.observes) lines.push(`- \`${s.param}\`: ${c.statement} ${ev(c)}`);
+  return lines;
+}
 
 export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null): Promise<string | null> {
   const k = await toolKnowledge(db, toolName, versionId ?? null, false);
   if (!k) return null;
   const lines: string[] = [];
   const claims = k.claims;
-  const ev = (c: ClaimView) => `[${c.evidence.map((e) => `#${e.id}`).join(', ')}]`;
 
   lines.push(`# ${k.tool}: verified behavior`);
   if (!k.version) {
@@ -46,16 +155,20 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   for (const ep of endpoints) {
     const mine = claims.filter((c) => c.endpoint === ep && c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint');
     lines.push('', `### ${ep}`);
-    const byParam = new Map<string, ClaimView[]>();
-    for (const c of mine) byParam.set(c.param ?? '', [...(byParam.get(c.param ?? '') ?? []), c]);
-    const general = byParam.get('') ?? [];
+    const shape = mine.filter((c) => c.kind === 'response_shape');
+    if (shape.length) {
+      lines.push('', 'Responses:');
+      for (const c of shape.sort(byKey)) lines.push(`- ${c.statement} ${ev(c)}`);
+    }
+    const general = mine.filter((c) => !c.param && c.kind !== 'response_shape');
     if (general.length) {
       lines.push('', 'General:');
       for (const c of general.sort(byKind)) lines.push(`- ${c.statement} ${ev(c)}`);
     }
-    for (const [param, list] of [...byParam.entries()].filter(([p]) => p).sort()) {
-      lines.push('', `Parameter \`${param}\`:`);
-      for (const c of list.sort(byKind)) lines.push(`- ${c.statement} ${ev(c)}`);
+    const paramLines = renderParameterLines(summarizeParameters(mine.filter((c) => c.param)));
+    if (paramLines.length) {
+      lines.push('', 'Request validation:');
+      lines.push(...paramLines);
     }
   }
   return lines.join('\n');
@@ -64,4 +177,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
 const KIND_ORDER = ['required', 'auth', 'type', 'pagination', 'error_behavior', 'undocumented', 'other'];
 function byKind(a: ClaimView, b: ClaimView): number {
   return KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.claim_key.localeCompare(b.claim_key);
+}
+function byKey(a: ClaimView, b: ClaimView): number {
+  return a.claim_key.localeCompare(b.claim_key);
 }

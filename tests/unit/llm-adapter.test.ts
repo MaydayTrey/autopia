@@ -16,7 +16,7 @@ test('relaxSchemaForApi strips constraint keywords the API grammar rejects, keep
   assert.equal('pattern' in item.properties.endpoint, false);
   assert.equal('maxLength' in item.properties.statement, false);
   assert.equal('minimum' in item.properties.confidence, false);
-  assert.deepEqual(item.properties.kind.enum, ['required', 'type', 'auth', 'pagination', 'error_behavior', 'undocumented_constraint', 'undocumented', 'other']);
+  assert.deepEqual(item.properties.kind.enum, ['required', 'type', 'auth', 'pagination', 'error_behavior', 'response_shape', 'undocumented_constraint', 'undocumented', 'other']);
   assert.ok(JSON.stringify(relaxed).indexOf('"title"') === -1);
 });
 

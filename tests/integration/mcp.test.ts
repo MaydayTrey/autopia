@@ -71,7 +71,10 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   assert.match(md, /## Where behavior contradicts the spec \(\d+\)/);
   assert.match(md, /The spec marks "q" as required, but omitting it still returns HTTP 200/);
   assert.match(md, /### GET \/v1\/items/);
-  assert.match(md, /Parameter `limit`:/);
+  assert.match(md, /Request validation:/);
+  assert.match(md, /`limit`/);
+  assert.match(md, /Responses:/);
+  assert.match(md, /content-type/);
   assert.match(md, /\[#\d+(, #\d+)*\]/, 'every line cites trial ids');
   assert.ok(md.indexOf('## Where behavior contradicts the spec') < md.indexOf('## Endpoint behavior'), 'divergences come first');
   const missing = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'nope' } });

@@ -38,8 +38,10 @@ Rules of this contract:
 - Kinds:
     required / type / auth / pagination / error_behavior: as named.
     undocumented_constraint: a rule the API enforces that the documented parameters never state, such as two parameters that must be sent together, an implicit default, or an ordering requirement. This is NOT a contradiction of the spec; set diverges_from_spec=false and describe the rule in the statement.
+    response_shape: what a SUCCESSFUL response looks like and means, read from the body samples: the default timezone or offset of timestamps, whether missing data is null or an omitted key, what units values are in, which fields are pagination/metadata, how nested results are keyed. These are the questions a caller asks next after validation, so prefer them over more validation claims.
     undocumented: other behavior the documentation never mentions (redirects, extra response keys, tolerance of odd input).
     other: anything else.
+- Do not add per-parameter validation claims that merely repeat a pattern the rules already cover for other parameters; one claim about the pattern, naming the exception if any, is worth more than ten about individual values.
 - "diverges_from_spec" is true ONLY when a documented fact (required flag, type, enum, minimum/maximum) contradicts the observed behavior; then put the documented fact in "spec_says". Silence in the spec is never a divergence.
 - Return at most 25 claims. Fewer, well-supported claims are better.`;
 
@@ -61,9 +63,18 @@ export function buildSummary(trials: Trial[], endpoints: EndpointSpec[], known: 
       lines.push(`- ${p.name} | ${p.in} | ${p.required ? 'required' : 'optional'} | ${p.type}${p.itemType ? `<${p.itemType}>` : ''} | ${c || '-'}`);
     }
     lines.push('');
-    lines.push('Trials (id | probe | param | compare_to | query | status | body summary):');
     const mine = trials.filter((t) => t.endpoint === label);
     const base = mine.find((t) => t.mutationId === 'baseline');
+    // A sample of what success looks like, so response_shape claims can be grounded in it.
+    const sampleFrom = [base, ...mine.filter((t) => t.mutationType === 'optional_present')].find((t) => t && t.statusCode !== null && t.statusCode < 300 && (t.response as { bodyKind?: string }).bodyKind === 'json');
+    if (sampleFrom) {
+      const r = sampleFrom.response as { headers?: Record<string, string>; body?: unknown };
+      const hdr = Object.entries(r.headers ?? {}).filter(([k]) => /content-type|ratelimit|rate-limit|cache-control|used-weight/.test(k)).map(([k, v]) => `${k}: ${v}`).join('; ');
+      lines.push(`Sample success response (trial ${sampleFrom.id}, ${sampleFrom.mutationId}; bodies are truncated to 5 array items / 200-char strings):`);
+      if (hdr) lines.push(`headers: ${hdr}`);
+      lines.push('```json', JSON.stringify(r.body).slice(0, 900), '```', '');
+    }
+    lines.push('Trials (id | probe | param | compare_to | query | status | body summary):');
     const optional = new Set(ep.params.filter((p) => !p.required).map((p) => p.name));
     const byMutation = new Map(mine.map((t) => [t.mutationId, t]));
     for (const t of mine) {

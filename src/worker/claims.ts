@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { Ajv, type ValidateFunction } from 'ajv';
 import type { Trial } from '../db/schema.js';
 
-export const CLAIM_KINDS = ['required', 'type', 'auth', 'pagination', 'error_behavior', 'undocumented_constraint', 'undocumented', 'other'] as const;
+export const CLAIM_KINDS = ['required', 'type', 'auth', 'pagination', 'error_behavior', 'response_shape', 'undocumented_constraint', 'undocumented', 'other'] as const;
 export type ClaimKind = (typeof CLAIM_KINDS)[number];
 export const VERDICTS = ['accepts', 'rejects', 'observes'] as const;
 export type Verdict = (typeof VERDICTS)[number];

@@ -14,6 +14,7 @@ import type { Trial } from '../../db/schema.js';
 import { ruleClaimKey, type CandidateClaim, type ClaimKind, type Verdict } from '../claims.js';
 import { describeSignature, signaturesEqual, type ResponseSignature } from '../signature.js';
 import { canonicalJson, type EndpointSpec, type ParamSpec, endpointLabel } from '../spec.js';
+import { shapeRules } from './shape-rules.js';
 
 type Index = Map<string, Trial>; // mutation_id -> trial, for one endpoint
 
@@ -59,6 +60,8 @@ export function rulesClaims(trials: Trial[], endpoints: EndpointSpec[]): Candida
     const params = new Map(ep.params.map((p) => [p.name, p]));
     out.push(...endpointRules(label, idx, params, mine));
   }
+  // What successful responses look like (content type, timestamps, nulls, pagination, rate-limit headers).
+  out.push(...shapeRules(trials, endpoints));
   return out;
 }
 

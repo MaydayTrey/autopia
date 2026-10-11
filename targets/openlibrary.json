@@ -1,0 +1,27 @@
+{
+  "name": "openlibrary",
+  "category": "reference-data",
+  "spec_url": "https://openlibrary.org/openapi.json",
+  "server": "https://openlibrary.org",
+  "include_paths": [
+    "/search.json",
+    "/search/authors.json",
+    "/subjects/{key}.json",
+    "/languages.json",
+    "/api/books.json"
+  ],
+  "baseline": {
+    "/subjects/{key}.json": { "key": "love" },
+    "/api/books.json": { "bibkeys": "ISBN:0451526538" }
+  },
+  "optional_values": {
+    "/search.json": { "q": "the lord of the rings", "limit": "5", "page": "1", "title": "hobbit", "author": "tolkien", "sort": "new", "fields": "key,title", "language": "eng", "first_publish_year": "1954" },
+    "/search/authors.json": { "q": "tolkien", "limit": "5", "page": "1", "fields": "key,name" },
+    "/subjects/{key}.json": { "limit": "5", "details": "false", "published_in": "1990-2000" },
+    "/languages.json": { "limit": "5" },
+    "/api/books.json": { "details": "false", "format": "json", "jscmd": "data" }
+  },
+  "headers": { "user-agent": "autopia/0.1 (API behavior research; github.com/MaydayTrey/autopia)" },
+  "rate": { "concurrency": 1, "min_interval_ms": 600 },
+  "max_trials": 300
+}

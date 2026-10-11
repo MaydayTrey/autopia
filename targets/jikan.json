@@ -1,0 +1,24 @@
+{
+  "name": "jikan",
+  "category": "entertainment",
+  "spec_url": "https://raw.githubusercontent.com/jikan-me/jikan-rest/master/storage/api-docs/api-docs.json",
+  "include_paths": [
+    "/anime",
+    "/anime/{id}",
+    "/anime/{id}/episodes",
+    "/top/anime",
+    "/genres/anime"
+  ],
+  "baseline": {
+    "/anime/{id}": { "id": "1" },
+    "/anime/{id}/episodes": { "id": "1" }
+  },
+  "optional_values": {
+    "/anime": { "q": "cowboy bebop", "limit": "5", "page": "1", "type": "tv", "status": "complete", "rating": "r17", "order_by": "title", "sort": "asc", "min_score": "7", "max_score": "9", "genres": "1", "start_date": "1998-01-01", "end_date": "1999-12-31" },
+    "/anime/{id}/episodes": { "page": "1" },
+    "/top/anime": { "limit": "5", "page": "1", "type": "tv", "filter": "airing" },
+    "/genres/anime": { "filter": "genres" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 1200 },
+  "max_trials": 300
+}

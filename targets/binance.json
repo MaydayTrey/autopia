@@ -1,0 +1,31 @@
+{
+  "name": "binance-spot-public",
+  "category": "finance",
+  "spec_url": "https://raw.githubusercontent.com/binance/binance-api-swagger/master/spot_api.yaml",
+  "include_paths": [
+    "/api/v3/time",
+    "/api/v3/exchangeInfo",
+    "/api/v3/depth",
+    "/api/v3/trades",
+    "/api/v3/klines",
+    "/api/v3/avgPrice",
+    "/api/v3/ticker/price",
+    "/api/v3/ticker/24hr"
+  ],
+  "baseline": {
+    "/api/v3/depth": { "symbol": "BTCUSDT" },
+    "/api/v3/trades": { "symbol": "BTCUSDT" },
+    "/api/v3/klines": { "symbol": "BTCUSDT", "interval": "1h" },
+    "/api/v3/avgPrice": { "symbol": "BTCUSDT" }
+  },
+  "optional_values": {
+    "/api/v3/exchangeInfo": { "symbol": "BTCUSDT", "symbols": "[\"BTCUSDT\",\"ETHUSDT\"]", "permissions": "SPOT" },
+    "/api/v3/depth": { "limit": "5" },
+    "/api/v3/trades": { "limit": "5" },
+    "/api/v3/klines": { "limit": "5", "startTime": "1704067200000", "endTime": "1704153600000", "timeZone": "0" },
+    "/api/v3/ticker/price": { "symbol": "BTCUSDT", "symbols": "[\"BTCUSDT\",\"ETHUSDT\"]" },
+    "/api/v3/ticker/24hr": { "symbol": "BTCUSDT", "symbols": "[\"BTCUSDT\",\"ETHUSDT\"]", "type": "MINI" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 500 },
+  "max_trials": 300
+}

@@ -1,0 +1,25 @@
+{
+  "name": "frankfurter",
+  "category": "finance",
+  "spec_url": "https://api.frankfurter.dev/v2/openapi.json",
+  "include_paths": [
+    "/currencies",
+    "/rates",
+    "/rate/{base}/{quote}",
+    "/currency/{code}",
+    "/providers",
+    "/coverage"
+  ],
+  "baseline": {
+    "/rate/{base}/{quote}": { "base": "EUR", "quote": "USD" },
+    "/currency/{code}": { "code": "USD" }
+  },
+  "optional_values": {
+    "/rates": { "date": "2026-01-15", "from": "2026-01-10", "to": "2026-01-15", "base": "EUR", "quotes": "USD,GBP", "providers": "ecb" },
+    "/rate/{base}/{quote}": { "date": "2026-01-15", "providers": "ecb" },
+    "/currencies": { "providers": "ecb" },
+    "/coverage": { "base": "EUR", "quotes": "USD", "providers": "ecb" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 300 },
+  "max_trials": 400
+}

@@ -52,7 +52,9 @@ export function hashInput(input: TrialInput): string {
   return sha256(canonicalJson({ m: input.method, u: input.url, q: input.query, h: input.headers }));
 }
 
-const KEEP_HEADERS = ['content-type', 'content-length', 'cache-control', 'retry-after', 'allow', 'server'];
+// Kept on every trial: content/caching headers plus every common rate-limit header family, so
+// rules can say what the API signals about limits without a dedicated probe.
+const KEEP_HEADERS = ['content-type', 'content-length', 'cache-control', 'etag', 'expires', 'retry-after', 'allow', 'server', 'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'x-ratelimit-used', 'ratelimit-limit', 'ratelimit-remaining', 'ratelimit-reset', 'ratelimit-policy', 'x-rate-limit-limit', 'x-rate-limit-remaining', 'x-rate-limit-reset', 'x-mbx-used-weight-1m', 'x-cache'];
 
 export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Promise<TrialOutcome> {
   const timeoutMs = opts.timeoutMs ?? 15_000;

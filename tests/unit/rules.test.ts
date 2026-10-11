@@ -102,7 +102,7 @@ test('rules: rate-limited and no-response trials are ignored', () => {
     fakeTrial({ mutationId: 'required_omitted:q', status: 429, body: ERR('rl', 'slow'), errorText: 'rate_limited' }),
     fakeTrial({ mutationId: 'extra_field', status: null }),
   ];
-  const keys = rulesClaims(trials, [itemsEndpoint]).map((c) => c.claim_key);
+  const keys = rulesClaims(trials, [itemsEndpoint]).map((c) => c.claim_key).filter((k) => !k.includes(':shape_'));
   assert.deepEqual(keys, ['rule:baseline:get_v1_items:-']);
 });
 
