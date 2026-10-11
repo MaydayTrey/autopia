@@ -135,7 +135,8 @@ test('batteryHash is stable', () => {
 });
 
 test('planTrials: auth fallback probes only a header the target actually sends; bare security gets none', () => {
-  const secured: EndpointSpec = { ...itemsEndpoint, hasSecurity: true, authSchemes: [] };
+  // drop api_key so the query-param heuristic does not fire; this test is about the header fallback
+  const secured: EndpointSpec = { ...itemsEndpoint, hasSecurity: true, authSchemes: [], params: itemsEndpoint.params.filter((p) => p.name !== 'api_key') };
   const noneSent = planTrials(secured, validateTarget({ name: 'a', spec_url: 'x', baseline: { '/v1/items': { q: 'hello' } } }));
   assert.ok(!noneSent.some((m) => m.type === 'bad_auth' && m.param === null), 'no generic Authorization guess');
   const withHeader = Object.fromEntries(
