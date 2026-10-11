@@ -1,0 +1,100 @@
+/**
+ * Spawns the real MCP server (stdio) on a throwaway PGlite dir populated by one
+ * pipeline run against the mock API, and exercises every tool through a real
+ * MCP client. This is what "an agent can consult the compendium" means.
+ */
+import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { startMockApi, type MockApi } from '../mock-api/server.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+let dir: string;
+let api: MockApi;
+let mcp: Client;
+let transport: StdioClientTransport;
+let versionIds: number[] = [];
+
+function parse(res: { content: unknown }) {
+  const block = (res.content as { type: string; text: string }[])[0];
+  return JSON.parse(block.text);
+}
+
+before(async () => {
+  dir = await mkdtemp(path.join(os.tmpdir(), 'autopia-mcp-'));
+  process.env.PGLITE_DIR = dir;
+  delete process.env.DATABASE_URL;
+  process.env.AUTOPIA_LOG = process.env.AUTOPIA_LOG ?? 'warn';
+  const client = await import('../../src/db/client.js');
+  const { runPipeline } = await import('../../src/worker/pipeline.js');
+  const { validateTarget } = await import('../../src/worker/target.js');
+  api = await startMockApi('v1');
+  const db = await client.getDb();
+  const target = validateTarget({ name: 'mock-items', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } } });
+  const s1 = await runPipeline(db, target, { llm: null, sleep: async () => {}, minIntervalMs: 0, concurrency: 4 });
+  const api2 = await startMockApi('v2');
+  const s2 = await runPipeline(db, { ...target, spec_url: api2.specPath }, { llm: null, sleep: async () => {}, minIntervalMs: 0, concurrency: 4 });
+  await api2.close();
+  versionIds = [s1.toolVersionId, s2.toolVersionId];
+  await client.closeDb(); // PGlite: one process at a time; hand the dir to the server process
+
+  transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server', 'mcp.ts')],
+    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error' } as Record<string, string>,
+    stderr: 'pipe',
+  });
+  mcp = new Client({ name: 'autopia-test-client', version: '0.0.0' });
+  await mcp.connect(transport);
+});
+
+after(async () => {
+  await mcp.close().catch(() => undefined);
+  await api.close();
+  await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+});
+
+test('mcp: lists the expected tools', async () => {
+  const { tools } = await mcp.listTools();
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_divergences', 'get_tool_knowledge', 'get_version_diff', 'list_tools', 'list_versions', 'search_claims']);
+});
+
+test('mcp: list_tools / list_versions', async () => {
+  const tools = parse(await mcp.callTool({ name: 'list_tools', arguments: {} }));
+  assert.equal(tools[0].name, 'mock-items');
+  assert.equal(tools[0].versions, 2);
+  const versions = parse(await mcp.callTool({ name: 'list_versions', arguments: { tool: 'mock-items' } }));
+  assert.deepEqual(versions.map((v: { id: number }) => v.id).sort(), [...versionIds].sort());
+});
+
+test('mcp: get_tool_knowledge returns verified claims with evidence; get_divergences only divergences', async () => {
+  const k = parse(await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'mock-items', version: versionIds[0] } }));
+  assert.ok(k.claims.length > 10);
+  assert.ok(k.claims.every((c: { verified: boolean; evidence: unknown[] }) => c.verified && c.evidence.length >= 1));
+  const d = parse(await mcp.callTool({ name: 'get_divergences', arguments: { tool: 'mock-items', version: versionIds[0] } }));
+  assert.ok(d.claims.length >= 3);
+  assert.ok(d.claims.every((c: { diverges_from_spec: boolean }) => c.diverges_from_spec));
+  assert.ok(d.claims.some((c: { claim_key: string }) => c.claim_key === 'rule:required_omitted:get_v1_items:q'));
+});
+
+test('mcp: search_claims answers a usage question', async () => {
+  const hits = parse(await mcp.callTool({ name: 'search_claims', arguments: { query: 'is q required on /v1/items', tool: 'mock-items' } }));
+  assert.ok(Array.isArray(hits) && hits.length >= 1);
+  assert.ok(hits.some((h: { param: string | null }) => h.param === 'q'));
+});
+
+test('mcp: get_version_diff shows the changelog', async () => {
+  const d = parse(await mcp.callTool({ name: 'get_version_diff', arguments: { tool: 'mock-items', from_version: versionIds[0], to_version: versionIds[1] } }));
+  assert.ok(d.counts.changed >= 3);
+  assert.ok(d.changes.some((c: { claim_key: string; change: string }) => c.claim_key === 'rule:required_omitted:get_v1_items:q' && c.change === 'changed'));
+});
+
+test('mcp: unknown tool is an error result, not a crash', async () => {
+  const res = await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'nope' } });
+  assert.equal(res.isError, true);
+});

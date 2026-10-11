@@ -1,0 +1,27 @@
+{
+  "name": "open-meteo-forecast",
+  "category": "weather",
+  "spec_url": "https://raw.githubusercontent.com/open-meteo/open-meteo/main/openapi/forecast.yml",
+  "baseline": {
+    "/v1/forecast": {
+      "latitude": "52.52",
+      "longitude": "13.41"
+    }
+  },
+  "optional_values": {
+    "/v1/forecast": {
+      "hourly": "temperature_2m",
+      "daily": "temperature_2m_max",
+      "current": "temperature_2m",
+      "minutely_15": "temperature_2m",
+      "timezone": "Europe/Berlin",
+      "start_date": "2026-10-12",
+      "end_date": "2026-10-13",
+      "models": "best_match"
+    }
+  },
+  "rate": {
+    "concurrency": 2,
+    "min_interval_ms": 150
+  }
+}

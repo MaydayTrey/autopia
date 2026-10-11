@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LlmClaim",
+  "description": "One behavioral claim produced by the interpretation pass. Validated with ajv before it touches the pipeline; invalid objects are discarded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["statement", "endpoint", "kind", "param", "verdict", "evidence", "confidence", "diverges_from_spec", "spec_says"],
+  "properties": {
+    "statement": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 400,
+      "description": "One sentence stating the observed behavior, including the concrete HTTP status."
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^(GET|HEAD) /",
+      "description": "Endpoint label exactly as given in the trial summary, e.g. \"GET /v1/forecast\"."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["required", "type", "auth", "pagination", "error_behavior", "undocumented", "other"]
+    },
+    "param": {
+      "type": ["string", "null"],
+      "description": "The parameter the claim is about, or null for endpoint-level behavior."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["accepts", "rejects", "observes"],
+      "description": "accepts = the API accepted the probed input; rejects = it refused it; observes = a neutral observation."
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trial_id", "status"],
+        "properties": {
+          "trial_id": { "type": "integer", "minimum": 1 },
+          "status": { "type": ["integer", "null"], "description": "The HTTP status that trial showed. Must match the summary exactly." }
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "diverges_from_spec": { "type": "boolean" },
+    "spec_says": {
+      "type": ["string", "null"],
+      "maxLength": 300,
+      "description": "What the spec claims about this, if the claim diverges from it."
+    }
+  }
+}

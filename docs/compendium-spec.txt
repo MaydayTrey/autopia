@@ -1,0 +1,361 @@
+====================================================================
+DISCRIMEN COMPENDIUM - MVP TECHNICAL SPEC
+v0.1 | For: Trey | Oct 10, 2026
+====================================================================
+
+Companion docs (keep together):
+  - discrimen-strategy.txt      (why: thesis, the whole company)
+  - compendium-skills-map.txt   (what skills, mapped to stages)
+  - compendium-stack.txt        (stack choices + reasoning)
+  - agentic-coding-crash-course.txt (the agent skills prerequisite)
+This file is the buildable blueprint for the first product.
+
+
+====================================================================
+1. OVERVIEW
+====================================================================
+
+WHAT IT IS
+  A system that empirically tests software tools (starting with
+  read-only HTTP APIs that ship a formal spec) to discover how they
+  ACTUALLY behave, cross-references that against what they CLAIM,
+  verifies each finding, and stores it as a versioned, queryable
+  knowledge base that any AI agent can consult over MCP.
+
+THE ONE-LINE THESIS
+  Model intelligence is outrunning model integration, and integration
+  is bottlenecked on documentation that is both decaying and never
+  described real behavior anyway. The compendium closes that gap by
+  empirically testing tools and generating verified, versioned
+  documentation, so any model can use any tool regardless of how badly
+  it is documented.
+
+THE CORE DIFFERENTIATOR (protect this)
+  Existing tools (Context7, DeepWiki, spec-driven enrichers) document
+  from what is WRITTEN, or test only what the spec says to test. This
+  system does OPEN-ENDED empirical discovery of behavior the docs never
+  mentioned, verifies it, and versions it. Spec-bounded vs open-ended
+  is the line.
+
+
+====================================================================
+2. SCOPE  (read this twice; scope is the whole discipline)
+====================================================================
+
+IN, for v1:
+  - Targets: public, READ-ONLY HTTP/REST APIs that ship an OpenAPI
+    (or JSON Schema) contract. No auth beyond a simple API key.
+  - The full pipeline on ONE target at a time, run on demand.
+  - Verified, versioned claims stored in a DB.
+  - An MCP server exposing read queries over those claims.
+  - A minimal read-only dashboard (optional, for demos).
+
+OUT, for v1 (explicitly; do not build these yet):
+  - Websites / browser driving / the Discrimen shell.
+  - Write/destructive endpoints, OAuth flows, stateful sessions.
+  - Paid APIs or anything that costs money per call.
+  - Multi-tenant accounts, billing, public hosting at scale.
+  - VM/sandbox isolation (not needed for read-only APIs).
+  - A shared/public contribution layer (comes after single-user works).
+
+THE SCOPE RULE
+  If a target lacks a formal spec, needs auth beyond an API key, or has
+  side effects, it is OUT of v1. Hold this line. Every exception
+  multiplies the difficulty.
+
+
+====================================================================
+3. GLOSSARY  (use these exact terms in code and schema)
+====================================================================
+
+  TOOL        - a software interface under study (v1: one REST API).
+  VERSION     - a specific version of a tool, fingerprinted by its spec.
+  SPEC        - the tool's formal contract (OpenAPI / JSON Schema).
+  BATTERY     - the reusable set of test cases applied to a target.
+  TRIAL       - one executed test call + its logged result. Cheap, no LLM.
+  CLAIM       - a behavioral statement derived from trials
+                ("field X is required despite the spec marking it optional").
+  EVIDENCE    - the specific trial ids that support a claim.
+  VERIFICATION- re-running a claim's cited trials to confirm it reproduces.
+  DIVERGENCE  - a claim that contradicts the spec, a sibling tool, or the
+                tool's own docs. The high-value output.
+  DIFF        - the change in claims between two versions of a tool.
+  COMPENDIUM  - the full store of verified, versioned claims.
+
+
+====================================================================
+4. ARCHITECTURE
+====================================================================
+
+Two processes + one database. Keep worker and server separate.
+
+  [ WORKER ]  (bursty, slow, token-heavy; runs the pipeline)
+     discover -> exercise -> aggregate -> cross-ref -> verify -> write
+        |            |            |            |          |        |
+     reads spec   TRIALS      one LLM pass   specs/     re-runs   CLAIMS
+                  (no LLM)     (batched)     siblings   trials    + DIFFS
+                                                        (no LLM)
+                        |
+                        v
+  [ POSTGRES ]  tools, versions, trials, claims, diffs (+ pgvector)
+                        ^
+                        |
+  [ SERVER ]  (light, always-on; serves queries)
+     MCP server  <-- agents query the compendium
+     (optional)  REST API  <-- read-only dashboard
+
+DATA FLOW (one run):
+  1. Point worker at a target spec URL.
+  2. DISCOVER: fetch + parse spec, fingerprint it, create/find a
+     tool_version row.
+  3. EXERCISE: generate trials from the battery + spec; execute them
+     against the API; log every trial (no LLM).
+  4. AGGREGATE: one batched LLM pass over the trial set -> candidate
+     claims (structured, schema-valid).
+  5. CROSS-REF: compare each claim to the spec, to sibling tools, and
+     to the other claims (self-consistency).
+  6. VERIFY: re-run the trials each surviving claim cites; keep only
+     claims that reproduce.
+  7. WRITE: store verified claims; if a prior version exists, compute
+     and store the DIFF.
+
+
+====================================================================
+5. PIPELINE SPEC  (stage by stage: input -> behavior -> output)
+====================================================================
+
+5.1 DISCOVER
+  In:  a target spec URL (OpenAPI/JSON Schema).
+  Do:  fetch spec; validate it parses; compute spec_hash; create
+       tool + tool_version if new, else reuse.
+  Out: tool_version row with spec stored and hashed.
+  Fail: if no parseable spec, STOP. Out of scope.
+
+5.2 EXERCISE  (cheap loop, NO LLM)
+  In:  the parsed spec + the generic BATTERY (section 6).
+  Do:  for each endpoint, generate trial inputs: valid baseline,
+       plus battery mutations (nulls, wrong types, missing required,
+       extra fields, boundaries, bad auth). Execute each with
+       concurrency cap + backoff. Log input, output, status, error,
+       latency as a TRIAL row. Deterministic: fixed seeds, pinned
+       inputs, so re-runs are byte-comparable.
+  Out: many TRIAL rows for this tool_version.
+
+5.3 AGGREGATE  (one batched LLM pass)
+  In:  the trial set (aggregated, not per-trial).
+  Do:  ONE model call. Prompt contract (section 7) asks for structured
+       CLAIMS, each with: statement, kind, cited evidence trial ids,
+       and a confidence. Validate output against the claim JSON Schema
+       with ajv. Discard anything invalid.
+  Out: candidate CLAIM rows (unverified).
+
+5.4 CROSS-REFERENCE
+  In:  candidate claims + the spec + sibling-tool claims.
+  Do:  tag each claim as agreeing-with or diverging-from (a) the spec,
+       (b) sibling tools in the same category, (c) the other claims
+       (self-consistency: flag contradictions; contradicting claims
+       are quarantined, not stored). Divergences are marked as the
+       high-value findings.
+  Out: claims tagged with divergence type; contradictions removed.
+
+5.5 VERIFY  (NO LLM)
+  In:  each surviving claim + its cited evidence trial ids.
+  Do:  re-execute those exact inputs. If the behavior reproduces, mark
+       verified=true. If not, discard the claim (it was a model
+       artifact). This is the trust guarantee.
+  Out: verified claims only.
+
+5.6 WRITE + DIFF
+  In:  verified claims for this tool_version.
+  Do:  store them. If a prior version of this tool exists, diff claim
+       sets: unchanged / changed / added / removed -> claim_diffs rows.
+       A changed behavior is an auto-generated changelog entry.
+  Out: committed claims + diffs. Compute embeddings for claims
+       (pgvector) for later semantic retrieval.
+
+
+====================================================================
+6. THE BATTERY  (reusable generic edge-case catalogue)
+====================================================================
+
+Build this ONCE; reuse on every target. Generic API failure modes:
+
+  - Required param omitted (one at a time, and all at once).
+  - Optional param omitted.
+  - Wrong type per field (string where int, etc.).
+  - Null where a value is expected.
+  - Empty string / empty array / empty object.
+  - Boundary values (0, negative, max int, very long string).
+  - Extra/unknown fields included.
+  - Malformed/missing auth (bad key, no key).
+  - Pagination edges (page 0, beyond last page, huge page size).
+  - Duplicate / conflicting params.
+  - Wrong content-type.
+
+Each battery item is a deterministic transform on a valid baseline
+request. The spec supplies the baseline + field list; the battery
+supplies the mutations. Pin seeds so runs are reproducible.
+
+
+====================================================================
+7. INTERPRETATION + VERIFICATION SPEC  (the heart; build slowly)
+====================================================================
+
+7.1 The interpretation prompt is a CONTRACT, not a chat.
+  - Input: aggregated trial summary (grouped by endpoint + mutation).
+  - Required output: a JSON array of claims, each:
+      { statement, endpoint, kind, evidence_trial_ids[], confidence }
+    where kind in {required, type, auth, pagination, error_behavior,
+    undocumented, other}.
+  - Rules in the prompt: cite only real trial ids; make no claim a
+    cited trial does not support; prefer "insufficient evidence" over
+    guessing.
+  - Validate every returned object with ajv against the claim schema.
+    Invalid -> discarded, logged, not retried blindly.
+
+7.2 Three verification layers (cheap -> expensive):
+  a. SELF-CONSISTENCY (free, pure logic): do the claims contradict each
+     other? Contradictions quarantined.
+  b. EVIDENCE CHECK (free): does each cited trial id exist and actually
+     show what the claim says? Mismatch -> discard.
+  c. REPRODUCTION (cheap, no LLM): re-run the cited inputs; behavior
+     must repeat. Non-reproducing -> discard.
+
+7.3 Every stored claim carries its evidence. No evidence, no claim.
+    This is the whole trust model: a claim is a hypothesis until its
+    trials reproduce, then it is a fact with a receipt.
+
+
+====================================================================
+8. MCP SERVER SURFACE  (how agents consume it)
+====================================================================
+
+Expose read-only query tools over MCP (names illustrative):
+
+  get_tool_knowledge(tool, version?)
+     -> all verified claims for a tool (latest version by default),
+        grouped by kind, divergences flagged.
+
+  search_claims(query, tool?)
+     -> semantic search over claims (pgvector) for a natural-language
+        question like "is the date field required on /bookings".
+
+  get_divergences(tool, version?)
+     -> only the claims that diverge from the tool's spec/docs. The
+        money view.
+
+  get_version_diff(tool, from_version, to_version)
+     -> the changelog between two versions (changed/added/removed
+        behaviors).
+
+  list_tools() / list_versions(tool)
+     -> catalogue.
+
+All responses include the EVIDENCE (trial references) behind each
+claim, so a consuming agent can see why to trust it.
+
+
+====================================================================
+9. DATA MODEL  (starting schema; refine as you build)
+====================================================================
+
+  tools(id, name, kind, category, created_at)
+  tool_versions(id, tool_id -> tools, version_label, spec_url,
+                spec_blob, spec_hash, discovered_at)
+  test_runs(id, tool_version_id -> tool_versions, battery_hash,
+            started_at, finished_at, status)
+  trials(id, test_run_id -> test_runs, endpoint, mutation_type,
+         input JSONB, response JSONB, status_code, error_text,
+         latency_ms, input_hash)
+  claims(id, tool_version_id -> tool_versions, statement, kind,
+         confidence, divergence_type, verified BOOL,
+         evidence_trial_ids BIGINT[], embedding vector, created_at)
+  claim_diffs(id, tool_id, from_version_id, to_version_id,
+              claim_id, change_type)   -- unchanged/changed/added/removed
+
+Notes:
+  - JSONB for input/response/spec_blob (flexible payloads).
+  - input_hash + spec_hash + battery_hash drive determinism & dedupe.
+  - embedding on claims for search_claims.
+
+
+====================================================================
+10. NON-FUNCTIONAL REQUIREMENTS
+====================================================================
+
+  DETERMINISM: pinned seeds + hashed inputs so re-runs diff cleanly.
+     A non-deterministic battery makes diffs meaningless.
+  COST CONTROL: LLM touches the data a fixed, small number of times per
+     run (ideally once at aggregate). Everything else is free code.
+     Track token spend per run.
+  TRUST: no claim without reproducible evidence. Verification is not
+     optional; it is the product.
+  MODEL INDEPENDENCE: provider access behind a thin adapter so models
+     (including open-weight) are swappable without touching the pipeline.
+  SAFETY: v1 is read-only public APIs, so risk is low. Respect robots/
+     rate limits/terms; throttle; never hammer an endpoint abusively.
+
+
+====================================================================
+11. BUILD MILESTONES  (each one runs and is demoable)
+====================================================================
+
+  M0  Spike (vibecode OK): hit ONE read-only API in a loop, print
+      results. Throwaway. Feel it work. (Tonight, if you want.)
+
+  M1  DISCOVER + EXERCISE for real: parse a spec, run the battery,
+      log TRIALS to Postgres. Pure FSO skills. No LLM yet.
+
+  M2  AGGREGATE: add the one batched interpretation pass -> candidate
+      claims, ajv-validated. First encounter with the CORE prompt work.
+      Slow down here.
+
+  M3  VERIFY: self-consistency + evidence check + reproduction. Now the
+      output is trustworthy. The other CORE skill. Slow down here too.
+
+  M4  CROSS-REF + DIFF: spec comparison, divergence tagging, and
+      version diffing. The high-value output appears.
+
+  M5  MCP SERVER: expose the query tools. Now an agent (incl. this
+      chat) can consult the compendium. Shippable MVP.
+
+  M6  (optional) read-only React dashboard for demos (EA).
+
+Do NOT vibecode M2 and M3. Those two are the product; understand them
+line by line. M0/M1 can be fast and loose.
+
+
+====================================================================
+12. SUCCESS CRITERIA  (how you know it works)
+====================================================================
+
+  - On a known API, it surfaces at least one TRUE divergence between
+    real behavior and the spec that you can independently confirm.
+  - Zero stored claims fail reproduction when re-run (verification
+    actually gates).
+  - Running it twice on the same unchanged version yields the same
+    claims (determinism).
+  - Running it on a new version produces a correct diff.
+  - An agent, via the MCP server, can answer a real usage question
+    about the tool using only the compendium.
+
+If it hits those five, the engine is real and the thesis is proven on
+one tool. Then: more tools (the data moat), then the web side.
+
+
+====================================================================
+13. OPEN QUESTIONS  (decide when you reach them, not now)
+====================================================================
+
+  - Which first target API? (Pick one read-only, well-specced, free.)
+  - Confidence scoring: model-reported vs derived from trial counts?
+  - How to represent "insufficient evidence" as a first-class result.
+  - Sibling-tool comparison: needs >=2 tools in a category first;
+    defer until you have them.
+  - When to introduce the queue (BullMQ) vs stay script-only.
+  - Embedding model choice for pgvector search.
+  - The shared/contribution layer and its trust/Sybil model (post-MVP).
+
+====================================================================
+END v0.1
+====================================================================

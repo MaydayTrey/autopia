@@ -1,0 +1,42 @@
+{
+  "name": "autopia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autopia: empirically tests read-only HTTP APIs, verifies what it finds, and serves the verified claims to agents over MCP.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "autopia": "tsx src/worker/cli.ts",
+    "mcp": "tsx src/server/mcp.ts",
+    "dashboard": "tsx src/dashboard/server.ts",
+    "spike": "tsx scripts/m0-spike.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/unit/*.test.ts tests/integration/*.test.ts",
+    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "test:integration": "tsx --test tests/integration/*.test.ts",
+    "mock-api": "tsx tests/mock-api/server.ts v1",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ajv": "^8.20.0",
+    "drizzle-orm": "^0.45.4",
+    "express": "^5.0.0",
+    "pg": "^8.13.0",
+    "yaml": "^2.9.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  }
+}

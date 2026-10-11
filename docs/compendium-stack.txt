@@ -1,0 +1,191 @@
+====================================================================
+THE COMPENDIUM - STACK & ARCHITECTURE
+Recommended tech choices, with the reasoning
+For: Trey | Oct 10, 2026
+====================================================================
+
+Two rules drove every choice below:
+  1. Don't make you learn a second stack. Lean on what FSO gives you.
+  2. Pick things that GROW from MVP to real without a rewrite.
+
+Opinionated on purpose. Where there's a real alternative, it's noted.
+
+
+--------------------------------------------------------------------
+LANGUAGE / RUNTIME:  TypeScript on Node
+--------------------------------------------------------------------
+
+Recommendation: TypeScript on Node (LTS version).
+
+Why TS over the alternatives:
+  - FSO teaches it. Zero second-language tax.
+  - The MCP reference SDK is TypeScript. Your serving layer is native.
+  - When you go to the web side later, Playwright is JS-native too.
+  - Your whole product is typed objects: tool definitions, claims,
+    schemas. The compiler catching a malformed claim shape at build
+    time is worth a lot for a correctness product.
+
+Honest alternative: Python. You know it, and it's the lingua franca of
+AI tooling. It's a legitimate choice for the TESTING and INTERPRETATION
+scripts specifically. But don't split the stack across two languages
+for the MVP; the ops overhead isn't worth it. Pick ONE, and TS is the
+better single pick given FSO + MCP. Revisit only if you find yourself
+fighting Node for some data/ML task Python does better.
+
+
+--------------------------------------------------------------------
+DATABASE:  PostgreSQL  (this is the decision that matters most)
+--------------------------------------------------------------------
+
+Recommendation: PostgreSQL. Not MongoDB, even though FSO teaches both.
+
+Why Postgres is right for THIS product specifically:
+  - Your data is relational and structured: tools, versions, test runs,
+    claims, verifications. You will JOIN and COMPARE constantly.
+  - DIFFING across versions is a query problem. SQL is built for it;
+    a document store fights you on it.
+  - JSONB columns give you document-style flexibility WHERE you want it
+    (raw log payloads, flexible claim bodies) inside a relational DB.
+    So you get both models in one engine.
+  - pgvector (a Postgres extension) adds VECTOR SEARCH in the same
+    database. When agents query "how do I use tool X," you'll want
+    semantic retrieval over your claims. With pgvector you get
+    relational + JSON + embeddings in ONE system, no second datastore.
+    This is the clean answer to the "any model queries the compendium"
+    requirement.
+  - FSO Part 13 teaches relational/SQL, so you're covered.
+
+Why NOT Mongo here: your value is in relationships, comparisons, and
+versioned diffs. A document DB is great for loosely-structured blobs
+and bad at exactly the queries your moat depends on.
+
+ORM / query layer: Prisma (best TS type generation, modern, migrations
+included). Sequelize is the FSO-taught alternative and is fine if you'd
+rather reuse that muscle. Prisma's generated types fit the typed-
+everything approach better.
+
+Schema sketch (starting point, not final):
+  tools(id, name, kind, spec_url, ...)
+  tool_versions(id, tool_id, version, spec_hash, discovered_at)
+  test_runs(id, tool_version_id, battery_hash, started_at, finished_at)
+  trials(id, test_run_id, input JSONB, output JSONB, status, error,
+         latency_ms)                         <- the cheap-loop records
+  claims(id, tool_version_id, statement, kind, confidence,
+         evidence_trial_ids[], verified_bool, embedding vector)
+  claim_diffs(id, from_version, to_version, claim_id, change_type)
+
+
+--------------------------------------------------------------------
+BACKEND / SERVICES:  two processes, kept separate
+--------------------------------------------------------------------
+
+The product is NOT one web server. It's two jobs with different shapes.
+Separate them from day one; it keeps everything sane.
+
+1) THE WORKER (the pipeline)
+   - Does the expensive, long-running work: exercise a tool, log
+     trials, run the batched interpretation, verify, write claims.
+   - MVP form: a plain Node script / CLI you run on demand.
+   - Grows into: scheduled jobs + a queue when you have many tools.
+     Use BullMQ (on Redis) when a script isn't enough. Not before.
+
+2) THE SERVER (the query surface)
+   - Serves the compendium to consumers. This is primarily your MCP
+     SERVER (the thing agents connect to), plus optionally a small REST
+     API for a dashboard.
+   - Framework: Express (FSO muscle) is fine for the MVP. Fastify is
+     the upgrade worth knowing because its schema-first validation
+     aligns with your product; not required to start.
+
+Why separate: the worker is bursty, slow, and compute/token-heavy; the
+server is light and always-on. Mixing them means a long test run blocks
+your query endpoint. Splitting now costs nothing and saves a refactor.
+
+
+--------------------------------------------------------------------
+LLM / INTERPRETATION LAYER
+--------------------------------------------------------------------
+
+  - Call your model provider through its official SDK, from the WORKER,
+    never the server.
+  - Use structured / JSON output so claims come back schema-valid.
+    Validate every response with ajv (JSON Schema) before it touches
+    the DB. A claim that fails validation is discarded, not stored.
+  - Keep provider access behind a thin adapter interface. You want to
+    swap or add models (including open-weight) without touching the
+    pipeline. This is also your model-independence principle in code.
+  - Verify-before-store: the worker re-runs the exact trials a claim
+    cites and confirms the behavior reproduces before writing it. This
+    step is deterministic (no LLM) and is the trust guarantee.
+
+
+--------------------------------------------------------------------
+RUNTIME ENVIRONMENT / HOSTING
+--------------------------------------------------------------------
+
+MVP / dev (now):
+  - Everything local. Node processes + local Postgres.
+  - Run Postgres in Docker so your DB setup is reproducible (FSO Part
+    12 covers Docker). One docker-compose with Postgres (+ Redis later)
+    is all you need.
+
+When you ship a hosted version:
+  - App + MCP server: a container on Fly.io, Railway, or Render. All
+    three are cheap, Docker-based, and simple. FSO's Docker + CI/CD
+    parts get you here.
+  - Postgres: MANAGED, don't run your own. Neon (serverless Postgres,
+    generous free tier) or Supabase (Postgres + pgvector + auth
+    bundled) are both excellent and both include pgvector. Supabase if
+    you want batteries included; Neon if you want lean serverless PG.
+  - Redis (only once you add the queue): managed via the same host, or
+    Upstash.
+  - Workers: same container to start; split to a dedicated worker
+    process/host when test volume grows.
+
+Isolation note (don't over-engineer): for the compendium MVP you're
+hitting READ-ONLY public APIs, so you do NOT need heavy sandboxing or
+VMs. Normal processes are fine. Session isolation / VM sandboxing is a
+WEB-side (Discrimen shell) concern for later, when agents drive
+logged-in sites. Don't build that infra now; it's wasted effort for
+read-only API testing.
+
+
+--------------------------------------------------------------------
+"DESIGN" / UI
+--------------------------------------------------------------------
+
+The product's real interface is the MCP endpoint + the data. A UI is
+OPTIONAL for the MVP.
+
+When you want one (to browse findings, see diffs, demo it):
+  - React (FSO's core) + a component kit. A simple internal dashboard:
+    list tools, view a tool's claims, show version diffs, show the
+    evidence behind a claim.
+  - Keep it read-only and plain at first. The dashboard is for you and
+    for demos (including EA), not a consumer product. Don't spend
+    design energy here until the engine produces something worth
+    looking at.
+
+
+--------------------------------------------------------------------
+THE WHOLE STACK, ON ONE LINE EACH
+--------------------------------------------------------------------
+
+  Language/runtime:  TypeScript on Node
+  Database:          PostgreSQL (+ JSONB, + pgvector for retrieval)
+  ORM:               Prisma (or Sequelize if reusing FSO)
+  Worker:            Node script -> BullMQ/Redis when it outgrows that
+  Server:            MCP server (+ optional Express REST for a UI)
+  Validation:        ajv (JSON Schema) on every LLM output and spec
+  LLM access:        provider SDK behind a thin swappable adapter
+  Dev env:           Docker Compose (Postgres, later Redis)
+  Hosting:           Fly.io/Railway/Render for app; Neon/Supabase for PG
+  UI (optional):     React read-only dashboard, for you + demos
+
+Almost all of it is FSO's stack. The only genuinely new infra pieces
+are the MCP server, pgvector, ajv, and (later) BullMQ. Everything else
+you're already learning.
+
+====================================================================
+END
+====================================================================

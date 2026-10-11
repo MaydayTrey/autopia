@@ -1,0 +1,123 @@
+====================================================================
+AUTOPIA - HANDOFF FOR THE NEXT AGENT
+Read this first. Updated: 2026-10-11 (MVP COMPLETE: M0-M6 built and tested)
+====================================================================
+
+OWNER: Trey. Beginner developer, learning
+via Full Stack Open. Explain decisions; don't just dump code.
+Never push to a remote without the literal word "push" from Trey.
+
+WHAT THIS IS
+  Autopia = the "Discrimen Compendium" MVP described in
+  docs/compendium-spec.txt (READ IT) and docs/compendium-stack.txt.
+  README.md explains how to run everything. This file is about
+  decisions, state, and what to do next.
+
+STATUS (all green as of this update)
+  [x] 1. Repo scaffold, package.json, tsconfig, target file, npm install
+  [x] 2. DB schema (src/db/schema.ts) + client + migrations (drizzle/)
+  [x] 3. DISCOVER: src/worker/spec.ts + discover.ts
+  [x] 4. EXERCISE: battery + http + signature + exercise.ts (M1)
+  [x] 5. AGGREGATE: rules.ts + llm.ts + claim.schema.json (M2)
+  [x] 6. CROSS-REF + VERIFY: crossref.ts + verify.ts (M3/M4)
+  [x] 7. WRITE + DIFF: write.ts + diff.ts, CLI, three live runs done
+  [x] 8. MCP server (M5), exercised end-to-end by tests/integration/mcp.test.ts
+  [x] 9. Dashboard (M6, minimal), README, this HANDOFF
+  Tests: 48 passing (37 unit + 11 integration). `npm test`.
+  Typecheck: clean. `npm run typecheck`.
+  NOT yet done: git commit (do it; nothing is committed yet),
+  LLM pass has NOT been run live (no API key on this machine).
+
+SUCCESS CRITERIA (spec section 12) - current evidence
+  1. True divergence on a known API: YES. Open-Meteo spec says
+     past_days maximum 92; API accepts 93 (its own error text says
+     "Allowed range 0 to 93"). Also: GET /v1/forecast with no params
+     returns HTTP 200 with an empty body instead of an error.
+  2. Zero stored claims fail reproduction: YES (0 rejected in runs 2,3).
+  3. Determinism: YES. `compare-runs open-meteo-forecast` reports
+     IDENTICAL claim sets for runs #2 and #3 (96 claims each).
+     (Run #1 differs only because it predates a crossref bug fix.)
+  4. Correct diff on a new version: proven against the mock API's
+     v1 -> v2 (integration test). Not yet seen on a real API.
+  5. Agent answers a usage question via MCP: proven in mcp.test.ts
+     (search_claims "is q required on /v1/items").
+
+DECISIONS MADE (with Trey's approval, 2026-10-11)
+  - Database: PGlite (Postgres-in-WASM, ./data/pglite) because
+    Docker/Postgres are NOT installed. DATABASE_URL switches to real
+    Postgres with no code change. PGlite allows ONE process at a
+    time: never run worker + MCP/dashboard concurrently.
+  - pgvector via @electric-sql/pglite-pgvector (separate package in
+    PGlite 0.5.x; the in-package "/vector" export no longer exists).
+  - ORM: Drizzle (not Prisma): native PGlite driver, schema.ts is the
+    source of truth, vector column type built in. After editing
+    schema.ts run `npm run db:generate`; migrations apply on connect.
+  - Claims come from TWO sources: deterministic RULES over trials
+    (aggregate/rules.ts) for the structured kinds, plus ONE LLM pass
+    (aggregate/llm.ts) for open-ended discovery. Rules alone already
+    find real divergences; the LLM pass is additive and activates
+    only when ANTHROPIC_API_KEY is set.
+  - LLM: claude-opus-5-5 via @anthropic-ai/sdk, beta messages stream,
+    output_config.format json_schema + ajv re-validation, adaptive
+    thinking, server-side refusal fallback "default". Model is
+    swappable via AUTOPIA_MODEL; provider via src/llm/adapter.ts.
+  - Reproduction compares a normalized SIGNATURE (status, body kind,
+    JSON shape, error message on 4xx/5xx only), never raw bytes.
+  - Every claim has a stable claim_key (rules: rule:<rule>:<endpoint>:
+    <param>; llm: llm:<kind>:<endpoint>:<param>:<verdict>:<probes>)
+    and "expectations" (trial id -> expected status), making the
+    evidence check mechanical for rules AND LLM claims.
+  - Pipeline order deviates from spec 7.2 on purpose: the free
+    EVIDENCE CHECK runs BEFORE cross-ref self-consistency. Reason: an
+    LLM claim that mis-states a trial's status would otherwise
+    "contradict" correct rules claims citing the same trial and
+    quarantine them. Found by the integration test.
+  - Self-consistency contradiction = (1) two claims expect different
+    statuses for the same trial, or (2) same endpoint+kind+param,
+    accepts vs rejects, over IDENTICAL evidence sets. Sharing only
+    the comparison baseline is NOT a contradiction (first live run
+    quarantined 44 good claims before this fix).
+  - Claims belong to a test_run; "current claims" = latest finished
+    run of a version. Lets us check determinism across runs.
+  - Search: Postgres full-text (OR of query words, ranked), ILIKE
+    fallback. Embedding column exists, left NULL (needs Voyage or
+    similar; Anthropic has no embedding model).
+  - Confidence is derived from evidence count, not model-reported.
+  - "Insufficient evidence" = no claim (not a claim kind).
+
+FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
+  1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
+  reproduction, well under their free-tier limits (concurrency 2,
+  150ms spacing). Note the spec types latitude/longitude as string.
+
+HOW TO RUN
+  npm install
+  npm run autopia -- run targets/open-meteo-forecast.json
+  npm run autopia -- claims open-meteo-forecast --divergences
+  npm run autopia -- compare-runs open-meteo-forecast
+  npm run mcp         (stop the worker first)
+  npm run dashboard   (http://localhost:4100; stop the worker first)
+  npm test / npm run test:unit / npm run test:integration
+  AUTOPIA_LOG=debug for per-trial logs; `plan <target>` for a dry run.
+
+NEXT STEPS (in order)
+  1. git add -A && git commit (first commit; nothing committed yet).
+  2. Trey creates an Anthropic API key -> .env -> run the pipeline
+     with the LLM pass live. Read src/worker/aggregate/llm.ts
+     together; this is the CORE prompt work the spec says not to
+     vibecode. Expect to tune SYSTEM_PROMPT and the summary format.
+     Cost: well under $1/run on Opus 5.5; 1-2 cents on Haiku 5.5.
+  3. Second target in the same category (e.g. another Open-Meteo
+     spec: openapi/air-quality.yml or marine.yml in the same repo) to
+     unlock sibling-tool comparison (crossref.ts, currently a no-op).
+  4. Real-API version diff: when Open-Meteo changes its spec, run
+     again; `diff <tool> <from> <to>` shows the changelog.
+  5. Consider real Postgres (Docker or Neon) once two processes need
+     the DB at once.
+
+KNOWN ROUGH EDGES
+  - Rate-limited (429) trials are logged but excluded from claims.
+  - Path parameters get a baseline value but no mutations (v1).
+  - Open-Meteo forecast_days=-1 error text says "Given 16." (API
+    quirk worth an LLM claim once the pass runs).
+  - The dashboard is deliberately plain (demo only).
