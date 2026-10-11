@@ -211,6 +211,15 @@ FOURTH TARGET: PokéAPI (targets/pokeapi.json, category reference-data)
   run #19. Run #20 (battery 1.2.1): 85 trials -> 84 verified, 0
   rejected, 0 auth claims, same 4 spec divergences. Cleared.
 
+FIFTH TARGET: Nager.Date public holidays (targets/nager-date.json, reference-data)
+  OpenAPI 3.1.1 with NO servers block -> target "server" option added
+  (commit 8be2888). 8 endpoints, all exercised. Run #21: 98 trials ->
+  97 verified, 0 rejected, 8 SPEC divergences (every documented
+  min/max/type on availableBridgeDays and offset is unenforced; 'abc',
+  0, 101, 1000, -13, 13, 120 all accepted) and 8 SIBLING divergences
+  vs PokéAPI (Nager ignores unknown query params; PokéAPI rejects).
+  First sibling comparison in reference-data works.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,
