@@ -259,6 +259,14 @@ HOSTING PREP (2026-10-12): everything except the two account steps
     No Docker needed for tests.
   - data/export.json (gitignored) = the current compendium, 5 tools,
     ready to import.
+  DONE 2026-10-12: Neon project 'Autopia' (AWS us-east-2) created by
+  Trey; DATABASE_URL (direct) and DATABASE_URL_POOLED are in .env.
+  Import ran: Neon now holds 5 tools / 2728 trials / 2176 claims.
+  Verified with scripts/whichdb.ts (prints version() + database):
+  PostgreSQL 18.x on neondb. All local commands now hit Neon; the
+  PGlite copy in data/pglite is a stale local snapshot. The code uses
+  the DIRECT url (migrations need it); the pooled url is unused.
+  Remaining for Trey: Fly.io steps below.
   Trey must do (needs his accounts; agents must NOT create accounts
   or enter credentials): (1) create a Neon (or Supabase) project and
   put DATABASE_URL in .env, then 'npm run db:import -- data/export.json';
