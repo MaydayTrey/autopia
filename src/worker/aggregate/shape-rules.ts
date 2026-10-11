@@ -96,9 +96,10 @@ export function shapeRules(trials: Trial[], endpoints: EndpointSpec[]): Candidat
     }
     if (stamps.size) {
       const parts = [...stamps.entries()].map(([k, v]) => `${describeStamp(k)} (e.g. ${v.example})`);
+      const formats = parts.length === 1 ? parts[0] : `${parts.length} formats: ${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
       const ev = [...new Set([...stamps.values()].map((v) => v.trial))];
       const tz = stamps.has('iso_utc') ? ' Times are UTC.' : stamps.has('iso_offset') ? ' Times carry an explicit UTC offset.' : stamps.has('iso_naive') ? ' Times carry NO timezone designator; the zone is whatever the request or server default implies.' : stamps.has('epoch_s') || stamps.has('epoch_ms') ? ' Epoch values are UTC by definition.' : '';
-      out.push(claim('timestamps', label, `Timestamps in successful responses are ${parts.join('; ')}.${tz}`, ev, 0.85));
+      out.push(claim('timestamps', label, parts.length === 1 ? `Timestamps in successful responses are ${formats}.${tz}` : `Timestamps in successful responses use ${formats}; check which field you read.${tz}`, ev, 0.85));
     }
   }
   return out;

@@ -74,26 +74,48 @@ export function carryForwardLlmClaims(prev: Claim[], prevTrials: Map<number, Tri
 
 /**
  * A fresh LLM pass does not know what was carried, so it restates findings in
- * new words, with the param or verdict slot filled differently; both then
- * survive the exact-key dedupe and the sheet says the same thing twice
- * (anthropic-api run #44: before_id/after_id cursor rule, unknown model id).
- * Treat a carried claim as SUPERSEDED when a fresh LLM claim on the same
- * endpoint and kind cites the same set of probes (ignoring the baseline).
- * The fresh wording wins and still goes through evidence check and
- * reproduction like everything else.
+ * new words, with the kind, param or verdict slot filled differently; both
+ * then survive the exact-key dedupe and the sheet says the same thing twice
+ * (anthropic-api run #44: before_id/after_id cursor rule, unknown model id;
+ * pypi run #46: empty project segment, filed once as error_behavior and once
+ * as undocumented). Two LLM claims on the same endpoint citing the same
+ * probes (baseline ignored) describe the same observation. So:
+ *   - a carried claim is SUPERSEDED by a fresh claim with the same
+ *     endpoint + probe set; the fresh wording wins and still goes through
+ *     evidence check and reproduction like everything else;
+ *   - two CARRIED claims with the same endpoint + probe set keep only the
+ *     more confident one (first on a tie), or else carried duplicates from
+ *     an earlier run would survive forever.
+ * Claims that cite only the baseline keep their kind in the key: one
+ * endpoint legitimately has several baseline-only observations.
  */
 export function dropSupersededCarried(carried: CarryResult, fresh: CandidateClaim[], trialsById: Map<number, Trial>): CarryResult {
-  const probeSet = (c: CandidateClaim) =>
-    [...new Set(c.evidence_trial_ids.map((id) => trialsById.get(id)?.mutationId ?? `#${id}`).filter((m) => m !== 'baseline'))].sort().join('+');
+  const dedupeKey = (c: CandidateClaim) => {
+    const probes = [...new Set(c.evidence_trial_ids.map((id) => trialsById.get(id)?.mutationId ?? `#${id}`).filter((m) => m !== 'baseline'))].sort().join('+');
+    return probes ? `${c.endpoint}|${probes}` : `${c.endpoint}|baseline|${c.kind}`;
+  };
   const freshKeys = new Map<string, string>();
-  for (const f of fresh) freshKeys.set(`${f.endpoint}|${f.kind}|${probeSet(f)}`, f.claim_key);
+  for (const f of fresh) freshKeys.set(dedupeKey(f), f.claim_key);
   const out: CarryResult = { claims: [], dropped: [...carried.dropped] };
-  for (const c of carried.claims) {
-    const by = freshKeys.get(`${c.endpoint}|${c.kind}|${probeSet(c)}`);
-    if (by && by !== c.claim_key) out.dropped.push({ claim_key: c.claim_key, reason: `superseded by fresh LLM claim ${by}` });
-    else out.claims.push(c);
+  const keptByKey = new Map<string, CandidateClaim>();
+  const sorted = [...carried.claims].sort((a, b) => b.confidence - a.confidence); // stable: ties keep input order
+  for (const c of sorted) {
+    const k = dedupeKey(c);
+    const by = freshKeys.get(k);
+    if (by && by !== c.claim_key) {
+      out.dropped.push({ claim_key: c.claim_key, reason: `superseded by fresh LLM claim ${by}` });
+      continue;
+    }
+    const prior = keptByKey.get(k);
+    if (prior && prior.claim_key !== c.claim_key) {
+      out.dropped.push({ claim_key: c.claim_key, reason: `duplicate of carried claim ${prior.claim_key} (same endpoint and probes)` });
+      continue;
+    }
+    keptByKey.set(k, c);
   }
+  // Preserve the original carried order for everything kept.
+  out.claims = carried.claims.filter((c) => keptByKey.get(dedupeKey(c)) === c);
   const n = out.dropped.length - carried.dropped.length;
-  if (n) log.info('aggregate', `${n} carried LLM claim(s) superseded by fresh LLM claims citing the same probes`);
+  if (n) log.info('aggregate', `${n} carried LLM claim(s) dropped as restated by a fresh claim or by another carried claim citing the same probes`);
   return out;
 }

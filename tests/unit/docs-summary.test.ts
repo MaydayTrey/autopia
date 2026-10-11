@@ -100,3 +100,19 @@ test('renderParameterLines shows the spec-relative boundary value that was actua
   assert.equal(lines.length, 1);
   assert.match(lines[0], /`limit` rejects 101 \(just above the documented maximum\), 100000 \(far above the documented maximum\), a value below the documented minimum \(HTTP 400\)/);
 });
+
+test('renderParameterLines treats "0" and "0 (below the documented minimum)" as the same probe value', () => {
+  const withQuery = (c: ClaimView, value: string): ClaimView => {
+    const probe = c.evidence[c.evidence.length - 1];
+    return { ...c, evidence: [c.evidence[0], { ...probe, request: { ...probe.request, query: [['limit', value]] } }] };
+  };
+  const lines = renderParameterLines(
+    summarizeParameters([
+      view({ rule: 'boundary_zero', param: 'limit', verdict: 'rejects', status: 400 }),
+      withQuery(view({ rule: 'boundary_below_min', param: 'limit', verdict: 'rejects', status: 400 }), '0'),
+      withQuery(view({ rule: 'boundary_above_max', param: 'limit', verdict: 'rejects', status: 400 }), '1001'),
+    ]),
+  );
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /`limit` rejects 0, 1001 \(just above the documented maximum\) \(HTTP 400\)/);
+});

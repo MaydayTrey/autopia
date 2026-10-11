@@ -46,7 +46,7 @@ test('carryForwardLlmClaims drops claims whose probe is missing tonight or whose
 });
 
 
-test('dropSupersededCarried drops a carried LLM claim when a fresh one on the same endpoint+kind cites the same probes (baseline ignored, param/verdict may differ)', () => {
+test('dropSupersededCarried drops a carried LLM claim when a fresh one on the same endpoint cites the same probes (baseline ignored; kind/param/verdict may differ) and dedupes carried-vs-carried', () => {
   resetIds(100);
   const baseline = fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST });
   const nullBefore = fakeTrial({ mutationId: 'null_value:before_id', status: 400, body: { error: 'not found' } });
@@ -72,8 +72,14 @@ test('dropSupersededCarried drops a carried LLM claim when a fresh one on the sa
   // anthropic-api run #44: the carried claim named after_id and cited no baseline; the fresh one named before_id and added the baseline.
   const carriedCursor = cand({ key: 'llm:undocumented_constraint:get_v1_models:after_id:rejects:null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: 'after_id', verdict: 'rejects', ids: [nullAfter.id, nullBefore.id] });
   const freshCursor = cand({ key: 'llm:undocumented_constraint:get_v1_models:before_id:rejects:baseline+null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: 'before_id', verdict: 'rejects', ids: [baseline.id, nullAfter.id, nullBefore.id] });
-  // Same probes but a different KIND: a different finding, kept.
+  // Same probes, different KIND (pypi run #46 filed the empty-project finding as error_behavior AND undocumented): superseded too.
   const carriedOtherKind = cand({ key: 'llm:error_behavior:get_v1_models:-:observes:null_value:after_id+null_value:before_id', kind: 'error_behavior', param: null, verdict: 'observes', ids: [nullAfter.id, nullBefore.id] });
+  // Two CARRIED claims citing the same probes (anthropic-api: 'unknown model id' filed as observes and as rejects): the more confident one stays.
+  const carriedTwinLow = { ...cand({ key: 'llm:error_behavior:get_v1_models:-:observes:extra_field+optional_present:before_id', kind: 'error_behavior', param: null, verdict: 'observes', ids: [extra.id, presentBefore.id] }), confidence: 0.7 };
+  const carriedTwinHigh = { ...cand({ key: 'llm:error_behavior:get_v1_models:before_id:rejects:extra_field+optional_present:before_id', kind: 'error_behavior', param: 'before_id', verdict: 'rejects', ids: [baseline.id, extra.id, presentBefore.id] }), confidence: 0.8 };
+  // Baseline-only claims keep their kind in the key: a response_shape and an undocumented note on the same endpoint are different findings.
+  const carriedShape = cand({ key: 'llm:response_shape:get_v1_models:-:observes:baseline', kind: 'response_shape', param: null, verdict: 'observes', ids: [baseline.id] });
+  const carriedBaselineNote = cand({ key: 'llm:undocumented:get_v1_models:-:observes:baseline', kind: 'undocumented', param: null, verdict: 'observes', ids: [baseline.id] });
   // Same probes and kind on a DIFFERENT endpoint: kept.
   const carriedOtherEndpoint = cand({ key: 'llm:undocumented_constraint:get_v1_other:-:rejects:null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: null, verdict: 'rejects', ids: [nullAfter.id, nullBefore.id], endpoint: 'GET /v1/other' });
   // Identical key to a fresh claim: left alone here (crossref's exact-key dedupe already keeps the fresh one).
@@ -83,15 +89,19 @@ test('dropSupersededCarried drops a carried LLM claim when a fresh one on the sa
   const carriedUnmatched = cand({ key: 'llm:undocumented:get_v1_models:-:observes:extra_field', kind: 'undocumented', param: null, verdict: 'observes', ids: [extra.id] });
 
   const r = dropSupersededCarried(
-    { claims: [carriedCursor, carriedOtherKind, carriedOtherEndpoint, carriedSameKey, carriedUnmatched], dropped: [{ claim_key: 'earlier', reason: 'probe x not in this run' }] },
+    { claims: [carriedCursor, carriedOtherKind, carriedOtherEndpoint, carriedSameKey, carriedUnmatched, carriedTwinLow, carriedTwinHigh, carriedShape, carriedBaselineNote], dropped: [{ claim_key: 'earlier', reason: 'probe x not in this run' }] },
     [freshCursor, freshSameKey],
     trialsById,
   );
   assert.deepEqual(
     r.claims.map((c) => c.claim_key),
-    [carriedOtherKind.claim_key, carriedOtherEndpoint.claim_key, carriedSameKey.claim_key, carriedUnmatched.claim_key],
+    [carriedOtherEndpoint.claim_key, carriedSameKey.claim_key, carriedUnmatched.claim_key, carriedTwinHigh.claim_key, carriedShape.claim_key, carriedBaselineNote.claim_key],
+    'kept, in the original carried order',
   );
-  assert.equal(r.dropped.length, 2, 'earlier drops are preserved');
-  assert.equal(r.dropped[1].claim_key, carriedCursor.claim_key);
-  assert.match(r.dropped[1].reason, /superseded by fresh LLM claim llm:undocumented_constraint:get_v1_models:before_id/);
+  assert.equal(r.dropped[0].claim_key, 'earlier', 'earlier drops are preserved');
+  const dropped = Object.fromEntries(r.dropped.slice(1).map((d) => [d.claim_key, d.reason]));
+  assert.match(dropped[carriedCursor.claim_key], /superseded by fresh LLM claim llm:undocumented_constraint:get_v1_models:before_id/);
+  assert.match(dropped[carriedOtherKind.claim_key], /superseded by fresh LLM claim/);
+  assert.match(dropped[carriedTwinLow.claim_key], /duplicate of carried claim llm:error_behavior:get_v1_models:before_id:rejects/);
+  assert.equal(Object.keys(dropped).length, 3);
 });

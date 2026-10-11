@@ -81,7 +81,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
       const prevLlm = prev.claims.filter((c) => c.source === 'llm');
       const prevTrials = await trialsByIds(db, [...new Set(prevLlm.flatMap((c) => c.evidenceTrialIds))]);
       carried = carryForwardLlmClaims(prevLlm, prevTrials, trials);
-      if (llmResult?.claims.length) carried = dropSupersededCarried(carried, llmResult.claims, trialsById);
+      if (carried.claims.length) carried = dropSupersededCarried(carried, llmResult?.claims ?? [], trialsById);
     }
     const candidates = [...ruleClaims, ...(llmResult?.claims ?? []), ...carried.claims];
 

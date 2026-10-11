@@ -95,7 +95,9 @@ function statusGroups(items: ParamSummary['rejects']): string {
   for (const it of items) {
     const k = it.status === null ? 'no response' : `HTTP ${it.status}`;
     const cur = g.get(k) ?? { labels: [], claims: [] };
-    if (!cur.labels.includes(it.label)) cur.labels.push(it.label); // boundary_zero and pagination_zero both read "0"
+    // boundary_zero and pagination_zero both read "0"; a spec-relative probe may have sent the same value as a fixed one ("0 (below the documented minimum)").
+    const value = (l: string) => l.replace(/ \(.*\)$/, '');
+    if (!cur.labels.some((l) => value(l) === value(it.label))) cur.labels.push(it.label);
     cur.claims.push(it.claim);
     g.set(k, cur);
   }
