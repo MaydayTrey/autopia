@@ -21,7 +21,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
-import { compactClaim, listTools, listVersions, resolveTool, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
+import { compactClaim, listTools, listVersions, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
@@ -45,8 +45,25 @@ export interface ServerContext {
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
+/**
+ * Injected into the client's context at connect time. Written for the MOMENT an agent
+ * would need the compendium (about to call an API; an API call just failed), not as a
+ * description of the compendium: an agent whose current thought is "curl the issues
+ * endpoint" has to recognise itself in the first lines.
+ */
+export const INSTRUCTIONS = `Autopia is a compendium of VERIFIED HTTP API behavior. Every claim was produced by probing the live API, reproduced on a re-run before it was stored, and cites the trial ids behind it. It records what an API's OpenAPI spec gets wrong and what it never says: parameters that are silently ignored or clamped, the real error body per status, what happens past the last page, auth and rate-limit behavior, accepted date formats, undocumented required combinations.
+
+TRIGGER (do this without being asked):
+- BEFORE your first request in a session to any host the compendium covers, call get_tool_docs with that host or URL, e.g. get_tool_docs {"tool":"api.github.com"}. Covered hosts include api.github.com, registry.npmjs.org, pypi.org, api.anthropic.com and api.open-meteo.com; list_tools shows all of them with their hosts. One read replaces trial-and-error against the API.
+- AFTER an API call fails or surprises you (an unexpected 4xx/5xx, a parameter that seems ignored, an empty or odd page, a filter that returns the wrong rows): call search_claims with the host and the symptom, e.g. "github per_page 500" or "npm search size 0".
+- When choosing between endpoints or between sibling APIs, get_divergences shows where each one contradicts its own spec.
+
+SKIP: hosts not listed by list_tools (request_target can queue a public read-only API); write endpoints (POST/PUT/DELETE are not probed yet); a behavior sheet you already read this session.
+
+TRUST: 'server' tier claims were re-verified by this server on the run shown in the sheet. 'contributor-verified' claims were run by a keyed user and not re-run since; the date says how stale they are. Nothing here is inferred from documentation; every line cites trials.`;
+
 export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false, identity: 'stdio' }): McpServer {
-  const server = new McpServer({ name: 'autopia', version: '0.1.0' });
+  const server = new McpServer({ name: 'autopia', version: '0.1.0' }, { instructions: INSTRUCTIONS });
 
   /** Registers a tool with call logging (who, what, ok, ms) around the handler. */
   const tool = <A extends Record<string, unknown>>(name: string, def: { title: string; description: string; inputSchema: Record<string, z.ZodTypeAny> }, handler: (args: A) => Promise<ToolResult>) => {
@@ -70,18 +87,27 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   /** "no such tool" with the closest existing names, so a caller guessing from a filename is redirected. */
   const noSuchTool = async (name: string) => {
     const s = await suggestTools(await getDb(), name);
-    return fail(`no such tool: ${name}${s.length ? `. Did you mean ${s.map((x) => `"${x}"`).join(' or ')}?` : ''} Use list_tools for the catalogue.`);
+    return fail(`no such tool: ${name}${s.length ? `. Did you mean ${s.map((x) => `"${x}"`).join(' or ')}?` : ''} Pass a tool name, or the host / URL you are about to call; list_tools shows the catalogue with hosts.`);
   };
+  /** `tool` may be a name, a host or a URL; returns the canonical name or an error result. */
+  const resolveName = async (ref: string): Promise<{ name: string } | { error: ToolResult }> => {
+    const r = await resolveToolRef(await getDb(), ref);
+    if (!r) return { error: await noSuchTool(ref) };
+    if ('ambiguous' in r) return { error: fail(`${r.ambiguous.length} tools cover ${r.host}: ${r.ambiguous.map((x) => `"${x}"`).join(', ')}. Pass one of them as tool.`) };
+    return { name: r.tool.name };
+  };
+  const TOOL_ARG = z.string().describe('tool name (e.g. github-rest), or the host / URL you are about to call (e.g. api.github.com)');
   /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. */
   const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose ? claims : claims.map(compactClaim));
 
-  tool('list_tools', { title: 'List tools', description: 'Catalogue of tools (APIs) in the compendium with tier, version and verified-claim counts. Tool names are what every other tool takes as `tool`.', inputSchema: {} }, async () => text(await listTools(await getDb())));
+  tool('list_tools', { title: 'List tools', description: 'Which APIs the compendium covers, each with the HOSTS its trials hit (match the URL you are about to call), trust tier, version count and verified-claim / divergence counts. Call once per session; then get_tool_docs for the host you are about to call.', inputSchema: {} }, async () => text(await listTools(await getDb())));
 
-  tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Versions of one tool, newest first. Each version is fingerprinted by its spec hash.', inputSchema: { tool: z.string().describe('tool name, e.g. open-meteo-forecast') } }, async ({ tool }) => {
+  tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Spec versions of one API, newest first, each fingerprinted by its spec hash. Use with get_version_diff when a spec changed and you want to know what changed in BEHAVIOR.', inputSchema: { tool: TOOL_ARG } }, async ({ tool }) => {
     const db = await getDb();
-    const t = await resolveTool(db, tool);
-    if (!t) return noSuchTool(tool);
-    const vs = await listVersions(db, t.id);
+    const r = await resolveToolRef(db, tool);
+    if (!r) return noSuchTool(tool);
+    if ('ambiguous' in r) return (await resolveName(tool) as { error: ToolResult }).error;
+    const vs = await listVersions(db, r.tool.id);
     return text(vs.map((v) => ({ id: v.id, label: v.versionLabel, spec_url: v.specUrl, spec_hash: v.specHash, discovered_at: v.discoveredAt })));
   });
 
@@ -89,11 +115,13 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     'get_tool_knowledge',
     {
       title: 'Get tool knowledge',
-      description: 'VERIFIED behavioral claims for a tool (latest version by default), paginated, divergences from the spec flagged, each with compact evidence (trial id, probe, status, request line). Filter by kind; set verbose=true for response previews. For a one-read summary prefer get_tool_docs.',
-      inputSchema: { tool: z.string(), version: z.number().int().optional().describe('tool_version id; default latest'), kind: z.string().optional().describe('required | type | auth | pagination | error_behavior | response_shape | undocumented_constraint | undocumented | other'), limit: z.number().int().min(1).max(500).optional().describe('default 100'), offset: z.number().int().min(0).optional(), verbose: z.boolean().optional() },
+      description: 'Every VERIFIED claim about an API as structured records (latest version by default), paginated, spec divergences flagged, each with compact evidence (trial id, probe, status, request line). Use when you need to filter by kind or process claims programmatically; for the one-read summary before calling the API use get_tool_docs. verbose=true adds response previews.',
+      inputSchema: { tool: TOOL_ARG, version: z.number().int().optional().describe('tool_version id; default latest'), kind: z.string().optional().describe('required | type | auth | pagination | error_behavior | response_shape | undocumented_constraint | undocumented | other'), limit: z.number().int().min(1).max(500).optional().describe('default 100'), offset: z.number().int().min(0).optional(), verbose: z.boolean().optional() },
     },
     async ({ tool, version, kind, limit, offset, verbose }) => {
-      const k = await toolKnowledge(await getDb(), tool, version ?? null, false);
+      const ref = await resolveName(tool);
+      if ('error' in ref) return ref.error;
+      const k = await toolKnowledge(await getDb(), ref.name, version ?? null, false);
       if (!k) return noSuchTool(tool);
       const all = kind ? k.claims.filter((c) => c.kind === kind) : k.claims;
       const start = offset ?? 0;
@@ -106,9 +134,11 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ tool: string; version?: number; verbose?: boolean }>(
     'get_divergences',
-    { title: 'Get divergences', description: "Only the verified claims where real behavior CONTRADICTS the tool's spec, with compact evidence. The high-value view. verbose=true adds response previews.", inputSchema: { tool: z.string(), version: z.number().int().optional(), verbose: z.boolean().optional() } },
+    { title: 'Get divergences', description: 'Where the live API CONTRADICTS its own OpenAPI spec: documented limits not enforced, types not validated, required params not required, enums that accept other values. Read before trusting a spec-generated client or SDK for this API. Compact evidence; verbose=true adds response previews.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), verbose: z.boolean().optional() } },
     async ({ tool, version, verbose }) => {
-      const k = await toolKnowledge(await getDb(), tool, version ?? null, true);
+      const ref = await resolveName(tool);
+      if ('error' in ref) return ref.error;
+      const k = await toolKnowledge(await getDb(), ref.name, version ?? null, true);
       if (!k) return noSuchTool(tool);
       return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: k.claims.length, claims: shape(k.claims, verbose) });
     },
@@ -116,27 +146,36 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ query: string; tool?: string; limit?: number; verbose?: boolean }>(
     'search_claims',
-    { title: 'Search claims', description: 'Search verified claims with a natural-language question, e.g. "is latitude required on /v1/forecast". Optionally restrict to one tool. Compact evidence unless verbose=true.', inputSchema: { query: z.string(), tool: z.string().optional(), limit: z.number().int().min(1).max(50).optional(), verbose: z.boolean().optional() } },
+    { title: 'Search claims', description: 'Call this when an API call FAILED or behaved unexpectedly: an unexpected 4xx/5xx, a parameter that seems ignored, an odd page, wrong filter results. Full-text search over verified claims with the host and the symptom, e.g. "github per_page 500", "npm search size 0", "is latitude required on /v1/forecast". Optionally restrict to one API (name, host or URL). Compact evidence unless verbose=true.', inputSchema: { query: z.string(), tool: TOOL_ARG.optional(), limit: z.number().int().min(1).max(50).optional(), verbose: z.boolean().optional() } },
     async ({ query, tool, limit, verbose }) => {
-      if (tool && !(await resolveTool(await getDb(), tool))) return noSuchTool(tool);
-      return text(shape(await searchClaims(await getDb(), query, tool ?? null, limit ?? 20), verbose));
+      let name: string | null = null;
+      if (tool) {
+        const ref = await resolveName(tool);
+        if ('error' in ref) return ref.error;
+        name = ref.name;
+      }
+      return text(shape(await searchClaims(await getDb(), query, name, limit ?? 20), verbose));
     },
   );
 
   tool<{ tool: string; version?: number }>(
     'get_tool_docs',
-    { title: 'Get tool docs', description: 'A Markdown behavior sheet for a tool, generated from verified claims: spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior. Each line cites the trial ids that back it. Use this when you are about to call the tool and want its real behavior in one read.', inputSchema: { tool: z.string(), version: z.number().int().optional() } },
+    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional() } },
     async ({ tool, version }) => {
-      const md = await renderToolDocs(await getDb(), tool, version ?? null);
+      const ref = await resolveName(tool);
+      if ('error' in ref) return ref.error;
+      const md = await renderToolDocs(await getDb(), ref.name, version ?? null);
       return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );
 
   tool<{ tool: string; from_version: number; to_version: number }>(
     'get_version_diff',
-    { title: 'Get version diff', description: 'Changelog of verified behavior between two versions of a tool: changed / added / removed claims.', inputSchema: { tool: z.string(), from_version: z.number().int(), to_version: z.number().int() } },
+    { title: 'Get version diff', description: 'What changed in verified BEHAVIOR between two spec versions of an API (changed / added / removed claims), as opposed to what changed in the spec text. Version ids come from list_versions.', inputSchema: { tool: TOOL_ARG, from_version: z.number().int(), to_version: z.number().int() } },
     async ({ tool, from_version, to_version }) => {
-      const d = await versionDiff(await getDb(), tool, from_version, to_version);
+      const ref = await resolveName(tool);
+      if ('error' in ref) return ref.error;
+      const d = await versionDiff(await getDb(), ref.name, from_version, to_version);
       return d ? text(d) : await noSuchTool(tool);
     },
   );
@@ -146,7 +185,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     {
       title: 'Request a target',
       description:
-        'Ask the compendium to test an API that is not in it yet. Pass a target object: { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. Scope: public read-only APIs with no credentials (no headers accepted). The request is validated now (spec fetched and parsed, battery planned) and processed rules-only on the worker\'s next pass; use get_request_status with the returned id. Requires a per-user key. Quota: 3 requests per key per day.',
+        'The API you are about to call is NOT covered (not in list_tools)? Ask the compendium to test it. Pass a target object: { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. Scope: public read-only APIs with no credentials (no headers accepted). The request is validated now (spec fetched and parsed, battery planned) and processed rules-only on the worker\'s next pass; use get_request_status with the returned id. Requires a per-user key. Quota: 3 requests per key per day.',
       inputSchema: { target: z.record(z.unknown()).describe('the target definition; see targets/*.json in the repo for examples') },
     },
     async ({ target }) => {

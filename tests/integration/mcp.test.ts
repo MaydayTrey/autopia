@@ -19,6 +19,7 @@ let api: MockApi;
 let mcp: Client;
 let transport: StdioClientTransport;
 let versionIds: number[] = [];
+let api2Host = ''; // the host the LATEST version's trials hit (second mock server)
 
 function parse(res: { content: unknown }) {
   const block = (res.content as { type: string; text: string }[])[0];
@@ -38,6 +39,7 @@ before(async () => {
   const target = validateTarget({ name: 'mock-items', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } } });
   const s1 = await runPipeline(db, target, { llm: null, sleep: async () => {}, minIntervalMs: 0, concurrency: 4 });
   const api2 = await startMockApi('v2');
+  api2Host = new URL(api2.url).host;
   const s2 = await runPipeline(db, { ...target, spec_url: api2.specPath }, { llm: null, sleep: async () => {}, minIntervalMs: 0, concurrency: 4 });
   await api2.close();
   versionIds = [s1.toolVersionId, s2.toolVersionId];
@@ -77,14 +79,31 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   assert.match(md, /content-type/);
   assert.match(md, /\[#\d+(, #\d+)*\]/, 'every line cites trial ids');
   assert.ok(md.indexOf('## Where behavior contradicts the spec') < md.indexOf('## Endpoint behavior'), 'divergences come first');
+  // The host / URL form: what an agent has in hand when it is about to call the API.
+  const byHost = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: new URL(api.url).host, version: versionIds[0] } });
+  assert.match((byHost.content as { text: string }[])[0].text, /^# mock-items: verified behavior/);
+  const byUrl = parse(await mcp.callTool({ name: 'get_divergences', arguments: { tool: `${api.url}/v1/items?q=hello` } }));
+  assert.equal(byUrl.tool, 'mock-items');
+  const unknownHost = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'api.example.com' } });
+  assert.equal(unknownHost.isError, true);
+  assert.match((unknownHost.content as { text: string }[])[0].text, /no such tool: api.example.com/);
   const missing = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'nope' } });
   assert.equal(missing.isError, true);
+});
+
+test('mcp: the server ships an instructions block written for the moment of use', () => {
+  const ins = mcp.getInstructions() ?? '';
+  assert.match(ins, /BEFORE your first request/);
+  assert.match(ins, /get_tool_docs/);
+  assert.match(ins, /search_claims/);
+  assert.match(ins, /SKIP:/);
 });
 
 test('mcp: list_tools / list_versions', async () => {
   const tools = parse(await mcp.callTool({ name: 'list_tools', arguments: {} }));
   assert.equal(tools[0].name, 'mock-items');
   assert.equal(tools[0].versions, 2);
+  assert.deepEqual(tools[0].hosts, [api2Host], 'the host the latest run hit, so an agent can match the URL it is about to call');
   const versions = parse(await mcp.callTool({ name: 'list_versions', arguments: { tool: 'mock-items' } }));
   assert.deepEqual(versions.map((v: { id: number }) => v.id).sort(), [...versionIds].sort());
 });

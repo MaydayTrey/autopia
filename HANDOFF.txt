@@ -1,58 +1,104 @@
 ====================================================================
 AUTOPIA - HANDOFF FOR THE NEXT AGENT
 ====================================================================
->>> STOPPING POINT 2026-10-12 (context exhausted mid-task). READ THIS FIRST. <<<
+>>> STOPPING POINT 2026-10-12, second session. READ THIS FIRST. <<<
 
 STATE OF THE WORKING TREE AT HANDOFF
-  Committed on main up to 483fa26 (pushed). Everything after that is a
-  LOCAL COMMIT made at handoff time WITHOUT a full test run (unit suite
-  76/76 green; the full suite was interrupted). Before pushing:
-    1. npm run typecheck && npm test   (expect ~106 tests; the only
-       known-fragile one is tests/integration/mcp.test.ts 'unknown tool
-       name gets a suggestion' whose regex was just fixed to match
-       JSON-escaped quotes: /Did you mean \\"mock-items\\"/)
-    2. if green: git push origin main (Trey must say 'push').
-  What the local commit contains (all described in sections below):
-    - battery 1.3.0: scheme-preserving bad_auth, datetime probes,
-      arrayLengths on stored responses, link header kept
-    - rules: rateTier() on auth claims, page_size_clamp,
-      page_beyond_empty, link_header, datetime cases
-    - redact.ts: the battery's fake credential 'invalid-key-autopia'
-      is NO LONGER redacted (it was, and verify then 'restored' the
-      real key into bad_auth probes -> false rejections on
-      anthropic-api run #43 and wrong 'reproduced' on github run #39)
-    - docs.ts: common-to-all-endpoints section, padding dropped
-    - mcp.ts: compact evidence, pagination, 'Did you mean', tool
-      descriptions; targets renamed to <tool name>.json
-    - new: specs/{npm-registry,pypi,anthropic}.yml + targets
-      npm-registry, pypi, anthropic-api; run-all.yml passes
-      ANTHROPIC_API_KEY for the anthropic target
-    - scripts/inspect-repro.ts now loadEnv()s and takes an optional
-      tool name as argv[3]; scripts/auth-probe-check.ts <runId>
-  Background runs that may still be in flight / just finished on Neon:
-    github-rest run (#40, started 19:27 with OLD redaction: its
-    bad_auth claims will be REJECTED; that is expected), anthropic-api
-    re-run (#44, with the fix: expect 0 rejected). Check with
-    'npm run autopia -- runs <tool>'; mark any stuck 'running' rows
-    with scripts/fail-stale-runs.ts.
-  Results already in Neon from this round: pypi run #42 (50 verified,
-  0 rejected), npm-registry run #41 (80 verified, 7 divergences vs OUR
-  authored spec: search size max 250 -> 2500 accepted, quality/
-  maintenance weights unvalidated, size=0 accepted), anthropic-api
-  run #43 (49 verified, 2 false rejections explained above).
+  main is 3 commits AHEAD of origin/main, all unpushed (Trey has not said
+  'push' yet):
+    2df81f4  WIP at handoff (semantic probes, honest auth claims, compact
+             MCP evidence, three new targets)        <- previous session
+    d2f65b4  Sheet wording fixes (DONE #3 below)
+    HEAD     Discovery: MCP instructions block, host/URL lookups, tool
+             descriptions written for the moment of use (DONE #4 below)
+  Full suite + typecheck GREEN at HEAD: 116 tests, 0 failing.
+  FLAKE to know about: tests/integration/postgres-path.test.ts failed in
+  its before() hook (PGlite.create on a fresh temp dir -> ErrnoError
+  errno 28) in 2 of 5 full-suite runs this session; it always passed
+  alone and on the immediate re-run, and it failed first on the untouched
+  2df81f4 tree, so no change here caused it. If it fails, re-run; if it
+  fails twice in a row, treat it as real.
+
+DONE THIS SESSION (2026-10-12, second session)
+  1. Handoff step 1 (full suite) done; push still needs the word.
+  2. Handoff step 2 (github-rest re-run with GITHUB_TOKEN) NOT RUN: the
+     agent's permission layer blocked launching a run that calls GitHub
+     with Trey's token and writes to Neon. Trey can run it himself from
+     the repo folder in PowerShell:
+       $env:GITHUB_TOKEN = [Environment]::GetEnvironmentVariable('GITHUB_TOKEN','User')
+       npm run autopia -- run targets/github-rest.json
+     Expect: bad_auth -> 401 'Bad credentials' (no bad_auth rejections),
+     auth claims naming the rate-limit tier, per_page clamp to 100, empty
+     last page, Link header, since-format claims. The two background runs
+     from the previous session are accounted for: github-rest #40
+     finished with the 7 expected bad_auth rejections (old redaction),
+     anthropic-api #44 finished with 0 rejected; no stuck 'running' rows.
+  3. Handoff step 3 (read the three new sheets) done. Findings and fixes
+     (commit d2f65b4, each with a unit test):
+     - error_shape counted auth / HEAD / XML / trailing-slash rejections
+       as validation errors ('3 distinct status/shape combinations ...
+       statuses 401, 404, 405' on anthropic /v1/models/{model_id}; npm
+       dist-tags 404 + 406). Only bad-VALUE probes count now
+       (NON_VALIDATION_PROBES in rules.ts).
+     - 'a body of shape "string"' (npm /{package}/{version} answers with
+       a JSON-encoded string) -> 'a bare JSON string body'
+       (describeBodyShape in rules.ts).
+     - 'trailing slash returns HTTP 200 JSON (without it: HTTP 200)' ->
+       'A trailing slash on the path is tolerated ...' when status and
+       signature match the baseline.
+     - '`limit` rejects 999999999, 100000, 0, a value just above the
+       documented maximum, ..., 0, ...': duplicate labels (boundary_zero
+       and pagination_zero both read "0") collapsed; spec-relative
+       boundary probes now show the value actually sent, e.g. '101 (just
+       above the documented maximum)' (docs.ts probeLabel reads the probe
+       trial's query; path params fall back to the generic label).
+     - anthropic-api said the same thing twice, twice: a carried LLM
+       claim (run #43) plus the fresh LLM claim (run #44) restating it
+       with a different param or verdict slot, hence a different key.
+       New dropSupersededCarried() in carry.ts drops a carried claim when
+       a fresh LLM claim on the same endpoint + kind cites the same probe
+       set (baseline ignored); wired in pipeline.ts before crossref.
+       Takes effect on each tool's next LLM run; the sheets in Neon show
+       the duplicates until then.
+     - 'common to all 2 endpoints' -> 'common to both endpoints'.
+     Seen, not changed: pypi's timestamp claim joins two formats with a
+     semicolon ('ISO 8601 without a timezone designator (...); ISO 8601
+     with a Z suffix (...)') and reads as one garbled sentence
+     (shape-rules.ts timestamp rule should name the fields or say 'two
+     formats'); anthropic's 'no rate-limit headers' is true for
+     /v1/models, but /v1/messages does send anthropic-ratelimit-*
+     headers, so that wording should scope itself to the probed
+     endpoints once the JSON-body battery exists.
+  4. ADOPTION lever #3 shipped (the cheapest; ranking under NEXT PHASE):
+     - src/server/mcp.ts: INSTRUCTIONS constant passed to McpServer,
+       TRIGGER / SKIP / TRUST shape copied from the claude-api skill:
+       'BEFORE your first request in a session to any host the
+       compendium covers, call get_tool_docs with that host or URL';
+       'AFTER an API call fails or surprises you ... search_claims with
+       the host and the symptom'.
+     - Every `tool` argument now accepts a NAME, a HOST or a URL
+       (queries.ts hostOf / runHosts / toolsForHost / resolveToolRef).
+       Hosts come from stored trial URLs, so target `server` overrides
+       are covered without a schema change. list_tools returns `hosts`
+       per tool (latest run). A host served by several tools -> error
+       naming them. Tests: tests/unit/host-ref.test.ts; mcp.test.ts
+       (instructions, hosts, host and URL forms, unknown host).
+     - Tool descriptions rewritten for the moment of use ('READ THIS
+       BEFORE YOUR FIRST CALL ...', 'Call this when an API call FAILED
+       ...'); README tool paragraph updated for the host form.
+     Render auto-deploys from main, so all of this goes live on push.
 
 IMMEDIATE NEXT STEPS (in order)
-  1. Full suite -> push (above).
-  2. Re-run github-rest with GITHUB_TOKEN (User env var on Trey's
-     machine; read it with the powershell one-liner in the GITHUB
-     section) and confirm: bad_auth now 401 'Bad credentials', auth
-     claims state the rate-limit tier, and the new semantic claims
-     (per_page clamp to 100, empty last page, Link header, since
-     formats) appear. That run is the judgment on whether the semantic
-     battery earns its keep (Trey's agent: type-fuzzing is low signal
-     on lenient APIs; ~5 of 259 claims were actionable).
-  3. Read the three new sheets (docs npm-registry / pypi /
-     anthropic-api) for padding and wrong wording.
+  1. Trey says 'push' (3 commits). Then check on the live server that
+     get_tool_docs {"tool":"api.github.com"} resolves (hosts are read
+     from trials in Neon; github-rest trials carry the real host).
+  2. github-rest re-run with GITHUB_TOKEN (DONE #2 above has the
+     commands and what to look for). That run is still the judgment on
+     whether the semantic battery earns its keep.
+  3. Lever #1: a Claude Code plugin with a PreToolUse hook on Bash /
+     WebFetch that matches the request URL against list_tools hosts and
+     injects the sheet. Lever #4: a SKILL.md carrying the same TRIGGER
+     text. Lever #2: PostToolUse on non-2xx responses.
 
 NEXT PHASE: ADOPTION / DISCOVERY (Trey's agent, 2026-10-12, verbatim
   gist: 'an agent would not know to check Autopia before calling an

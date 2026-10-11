@@ -79,6 +79,10 @@ sheet generated from the verified claims (spec contradictions first, then siblin
 differences, undocumented rules, per-endpoint behavior), every line citing its trial ids.
 The same sheet is `npm run autopia -- docs <tool>` and `GET /api/tools/<tool>/docs` on the
 dashboard. Every response carries the evidence trials.
+The `tool` argument of every MCP tool accepts a tool name, a host, or the URL you are about
+to call (`api.github.com`, `https://registry.npmjs.org/-/v1/search`); `list_tools` lists each
+tool's hosts. The server also ships an instructions block telling an agent WHEN to consult it:
+before its first request to a covered host, and after an API call fails or surprises it.
 
 ### Keeping it current (automation)
 

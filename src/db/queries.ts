@@ -81,6 +81,8 @@ export async function listTools(db: Db) {
       latest_version_label: latest?.versionLabel ?? null,
       verified_claims: cur?.claims.length ?? 0,
       divergences: cur?.claims.filter((c) => c.divergenceType).length ?? 0,
+      /** The API hosts this tool's trials hit: match the URL you are about to call against these. */
+      hosts: cur?.runId ? await runHosts(db, cur.runId) : [],
     });
   }
   return out;
@@ -89,6 +91,64 @@ export async function listTools(db: Db) {
 export async function resolveTool(db: Db, name: string): Promise<Tool | null> {
   const [t] = await db.select().from(schema.tools).where(eq(schema.tools.name, name));
   return t ?? null;
+}
+
+/** SQL: the host (with port) of a trial's request URL. */
+const trialHost = sql<string>`substring((${schema.trials.input}->>'url') from '^[a-zA-Z][a-zA-Z0-9+.-]*://([^/?#]+)')`;
+
+/**
+ * The host part of what an agent may pass as `tool`: a bare host ("api.github.com",
+ * "127.0.0.1:4321"), or a full URL. Null when it reads as a plain tool name.
+ */
+export function hostOf(ref: string): string | null {
+  const s = ref.trim().toLowerCase();
+  if (!s) return null;
+  const url = s.match(/^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/);
+  if (url) return url[1];
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/|$)/.test(s) || /^(localhost|\[::1\])(:\d+)?(\/|$)/.test(s)) return s.split('/')[0];
+  return null;
+}
+
+/** Distinct API hosts a run actually hit, from its trial URLs. */
+export async function runHosts(db: Db, runId: number): Promise<string[]> {
+  const rows = await db.selectDistinct({ host: trialHost }).from(schema.trials).where(eq(schema.trials.testRunId, runId));
+  return rows
+    .map((r) => r.host)
+    .filter((h): h is string => !!h)
+    .sort();
+}
+
+/** Names of the tools whose trials have hit this host (any run). */
+export async function toolsForHost(db: Db, host: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ name: schema.tools.name })
+    .from(schema.trials)
+    .innerJoin(schema.testRuns, eq(schema.trials.testRunId, schema.testRuns.id))
+    .innerJoin(schema.toolVersions, eq(schema.testRuns.toolVersionId, schema.toolVersions.id))
+    .innerJoin(schema.tools, eq(schema.toolVersions.toolId, schema.tools.id))
+    .where(sql`lower(${trialHost}) = ${host.toLowerCase()}`);
+  return rows.map((r) => r.name).sort();
+}
+
+export type ToolRef = { tool: Tool; via: 'name' | 'host' } | { ambiguous: string[]; host: string } | null;
+
+/**
+ * Resolve what an agent passed as `tool`: an exact tool name, or the host / URL it is
+ * about to call. The host form is what makes "check the compendium before you call
+ * api.github.com" a single step instead of a catalogue lookup first.
+ */
+export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
+  const exact = await resolveTool(db, ref);
+  if (exact) return { tool: exact, via: 'name' };
+  const host = hostOf(ref);
+  if (!host) return null;
+  const names = await toolsForHost(db, host);
+  if (names.length === 1) {
+    const tool = await resolveTool(db, names[0]);
+    return tool ? { tool, via: 'host' } : null;
+  }
+  if (names.length > 1) return { ambiguous: names, host };
+  return null;
 }
 
 export async function listVersions(db: Db, toolId: number): Promise<ToolVersion[]> {
