@@ -1,0 +1,20 @@
+# Render Blueprint: one free web service running the HTTP MCP server from the Dockerfile.
+# In Render: New -> Blueprint -> pick this repo. Then set the secret env vars it prompts for.
+services:
+  - type: web
+    name: autopia-mcp
+    runtime: docker
+    plan: free
+    region: ohio          # same side of the country as the Neon project
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTOPIA_LOG
+        value: info
+      - key: DATABASE_URL
+        sync: false       # paste the Neon DIRECT connection string in the Render dashboard
+      - key: AUTOPIA_MCP_TOKEN
+        generateValue: true   # Render generates a random token; copy it from the dashboard
