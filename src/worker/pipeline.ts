@@ -23,7 +23,7 @@ import { computeAndStoreDiff, countBy, type DiffEntry } from './diff.js';
 import { discover } from './discover.js';
 import { exercise, type ExerciseOptions } from './exercise.js';
 import { log } from './log.js';
-import { selectEndpoints, type TargetConfig } from './target.js';
+import { intervalFor, selectEndpoints, type TargetConfig } from './target.js';
 import { secretsOf } from './redact.js';
 import { evidenceCheck, verify } from './verify.js';
 import { writeClaims } from './write.js';
@@ -101,7 +101,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
     const xr = crossReference(withEvidence, d.parsed.endpoints, siblings);
 
     // 6. VERIFY (evidence check again, then reproduction)
-    const v = await verify(xr.kept, trialsById, { ...opts, minIntervalMs: opts.minIntervalMs ?? target.rate?.min_interval_ms, reproduce: opts.reproduce, secrets: secretsOf(target) });
+    const v = await verify(xr.kept, trialsById, { ...opts, minIntervalMs: opts.minIntervalMs ?? target.rate?.min_interval_ms, reproduce: opts.reproduce, secrets: secretsOf(target), intervalFor: (ep) => intervalFor(target, ep) });
     v.rejected.unshift(...evidenceRejected);
 
     // 7. WRITE + DIFF

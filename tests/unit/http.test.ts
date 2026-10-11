@@ -84,3 +84,29 @@ test('parseBody and truncateBody', () => {
   assert.equal(t.arr.length, 6);
   assert.equal(t.arr[5], '…(+2 more)');
 });
+
+test('execute: a 403 with x-ratelimit-remaining 0 is treated as rate limiting and waits for the reset', async () => {
+  let n = 0;
+  const waits: number[] = [];
+  const resetAt = Math.floor(Date.now() / 1000) + 3; // 3s from now
+  const out = await execute(base, {
+    fetchImpl: async () =>
+      n++ === 0
+        ? json(403, { message: 'API rate limit exceeded for user ID 1.' }, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetAt) })
+        : json(200, { ok: true }, { 'x-ratelimit-remaining': '29' }),
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+    retries: 3,
+  });
+  assert.equal(n, 2);
+  assert.equal(out.status, 200);
+  assert.equal(out.rateLimited, true);
+  assert.ok(waits[0] >= 2000 && waits[0] <= 5000, `waited until the reset: ${waits[0]}ms`);
+  // a plain 403 (forbidden, quota not exhausted) is NOT retried
+  let m = 0;
+  const forbidden = await execute(base, { fetchImpl: async () => (m++, json(403, { message: 'nope' }, { 'x-ratelimit-remaining': '4999' })), sleep: noSleep, retries: 3 });
+  assert.equal(m, 1);
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.rateLimited, false);
+});

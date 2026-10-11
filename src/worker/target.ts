@@ -17,6 +17,8 @@ export interface TargetConfig {
   /** Extra headers on every request (e.g. an API key header). */
   headers?: Record<string, string>;
   rate?: { concurrency?: number; min_interval_ms?: number };
+  /** Slower spacing for specific spec paths (e.g. a search endpoint with its own small quota). */
+  rate_overrides?: Record<string, { min_interval_ms: number }>;
   max_trials?: number;
   /** Only exercise these spec paths (exact match). Omit to exercise every GET endpoint. */
   include_paths?: string[];
@@ -24,6 +26,12 @@ export interface TargetConfig {
   server?: string;
   /** Replace the spec's declared server with `server` (e.g. a regional mirror that serves the same API). */
   override_server?: boolean;
+}
+
+/** Minimum spacing for an endpoint label ("GET /path"): the path's override if any, else the target default. */
+export function intervalFor(target: TargetConfig, endpoint: string): number {
+  const path = endpoint.replace(/^[A-Z]+ /, '');
+  return target.rate_overrides?.[path]?.min_interval_ms ?? target.rate?.min_interval_ms ?? 150;
 }
 
 /** Apply include_paths; errors if a listed path is not in the spec (typo guard). */
@@ -60,6 +68,7 @@ export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {
     rate: { concurrency: c, min_interval_ms: i },
     max_trials: raw.max_trials ?? 500,
     include_paths: Array.isArray(raw.include_paths) ? raw.include_paths.map(String) : undefined,
+    rate_overrides: raw.rate_overrides && typeof raw.rate_overrides === 'object' ? Object.fromEntries(Object.entries(raw.rate_overrides).map(([p, r]) => [p, { min_interval_ms: Math.max(0, Number((r as { min_interval_ms?: number }).min_interval_ms ?? 0)) }])) : undefined,
     server: typeof raw.server === 'string' && /^https?:\/\//i.test(raw.server) ? raw.server.replace(/\/+$/, '') : undefined,
     override_server: raw.override_server === true,
   };

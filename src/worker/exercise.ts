@@ -14,7 +14,7 @@ import { execute, hashInput, truncateBody, type FetchLike, type TrialInput } fro
 import { log } from './log.js';
 import { redactInput } from './redact.js';
 import { endpointLabel, type EndpointSpec } from './spec.js';
-import type { TargetConfig } from './target.js';
+import { intervalFor, type TargetConfig } from './target.js';
 
 export interface ExerciseOptions {
   maxTrials?: number;
@@ -76,6 +76,7 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
   let next = 0;
   let done = 0;
   let nextSlot = 0;
+  const nextSlotByEndpoint = new Map<string, number>(); // per-path overrides (e.g. a search quota)
   let transportErrors = 0;
   let aborted: Error | null = null;
   const UNREACHABLE_AFTER = opts.unreachableAfter ?? 5;
@@ -87,8 +88,13 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
       if (i >= plan.length) return;
       const t = plan[i];
       const now = Date.now();
-      const wait = Math.max(0, nextSlot - now);
-      nextSlot = Math.max(now, nextSlot) + minInterval;
+      // global spacing, plus a per-endpoint spacing when the target overrides it for that path
+      const epInterval = intervalFor(target, t.endpoint);
+      const epSlot = epInterval > minInterval ? (nextSlotByEndpoint.get(t.endpoint) ?? 0) : 0;
+      const startAt = Math.max(now, nextSlot, epSlot);
+      nextSlot = startAt + minInterval;
+      if (epInterval > minInterval) nextSlotByEndpoint.set(t.endpoint, startAt + epInterval);
+      const wait = startAt - now;
       if (wait > 0) await sleep(wait);
 
       const { out, row } = await runOne(t.input, opts);

@@ -23,6 +23,8 @@ export interface VerifyOptions extends ExerciseOptions {
   minIntervalMs?: number;
   /** Credentials to put back into redacted stored inputs before re-executing (from the target). */
   secrets?: Record<string, string>;
+  /** Per-endpoint minimum spacing (from the target's rate_overrides); the larger of this and minIntervalMs is used. */
+  intervalFor?: (endpoint: string) => number;
 }
 
 export interface VerifyResult {
@@ -67,6 +69,7 @@ export async function verify(claims: CandidateClaim[], trialsById: Map<number, T
   for (const id of ids) {
     const t = trialsById.get(id)!;
     const stored = t.signature as unknown as ResponseSignature;
+    const gap = Math.max(interval, opts.intervalFor?.(t.endpoint) ?? 0);
     const input = restoreInput(t.input as unknown as TrialInput, opts.secrets ?? {});
     let { out } = await runOne(input, opts);
     let same = signaturesEqual(stored, out.signature);
@@ -74,7 +77,7 @@ export async function verify(claims: CandidateClaim[], trialsById: Map<number, T
       // One retry: a transient upstream hiccup must not discard a true claim.
       // The retry must match the STORED signature exactly as before; no loosening.
       log.debug('verify', `trial ${id} (${t.mutationId}) mismatched once (${describeSignature(out.signature)}); retrying`);
-      if (interval > 0) await sleep(interval);
+      if (gap > 0) await sleep(gap);
       out = (await runOne(input, opts)).out;
       same = signaturesEqual(stored, out.signature);
     }

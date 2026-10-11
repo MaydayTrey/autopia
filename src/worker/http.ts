@@ -104,11 +104,17 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
       const v = res.headers.get(k);
       if (v !== null) headers[k] = v;
     }
-    if (res.status === 429) rateLimited = true;
-    if ((res.status === 429 || res.status === 503) && attempt < retries) {
+    // Rate limiting: 429, or (GitHub-style) 403 with the quota header at 0. Back off until the
+    // advertised reset when there is one, capped, so a quota probe does not poison the run.
+    const remaining = res.headers.get('x-ratelimit-remaining') ?? res.headers.get('ratelimit-remaining');
+    const quotaExhausted = res.status === 403 && remaining !== null && Number(remaining) === 0;
+    if (res.status === 429 || quotaExhausted) rateLimited = true;
+    if ((res.status === 429 || res.status === 503 || quotaExhausted) && attempt < retries) {
       const ra = Number(res.headers.get('retry-after'));
-      const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 10_000) : 1000 * 2 ** attempt;
-      log.warn('http', `got ${res.status}, backing off ${wait}ms`, { url });
+      const resetAt = Number(res.headers.get('x-ratelimit-reset') ?? res.headers.get('ratelimit-reset'));
+      const untilReset = Number.isFinite(resetAt) && resetAt > 1e9 ? resetAt * 1000 - Date.now() + 1000 : NaN;
+      const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 65_000) : Number.isFinite(untilReset) && untilReset > 0 ? Math.min(untilReset, 65_000) : 1000 * 2 ** attempt;
+      log.warn('http', `got ${res.status}${quotaExhausted ? ' (quota exhausted)' : ''}, backing off ${Math.round(wait)}ms`, { url });
       await res.text().catch(() => undefined);
       await sleep(wait);
       continue;
