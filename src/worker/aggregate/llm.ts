@@ -34,6 +34,7 @@ Rules of this contract:
 - Every trial row names its comparison trial in the "compare_to" column (the request it should be judged against). When you cite a probe trial, ALSO cite its comparison trial, so the evidence shows the contrast and both must reproduce. A claim built from several probes cites each probe and the comparison they share.
 - Make no claim that its cited trials do not directly support. If the trials are insufficient, make no claim. Prefer silence over guessing.
 - Do not restate claims already listed under "Already claimed by rules".
+- State each finding ONCE. A comparison across two endpoints (the same input answered differently by each) is one claim, filed under the endpoint whose behavior is the surprise, citing both endpoints' trials; do not file it again under the other endpoint or under another parameter.
 - One sentence per statement, concrete, with the observed HTTP status. No speculation about causes.
 - Kinds:
     required / type / auth / pagination / error_behavior: as named.

@@ -190,3 +190,25 @@ test('rules: a trailing slash that changes nothing is reported as tolerated, not
   ).find((c) => c.claim_key === 'rule:path_trailing_slash:get_v1_items:-')!;
   assert.match(differs.statement, /^The path with a trailing slash returns HTTP 301/);
 });
+
+test('rules: a page-size cap is claimed only when more items provably exist (Link next, a total field, or the documented maximum reached)', () => {
+  const q: [string, string][] = [['q', 'hello']];
+  const huge = (extra: { arrayLengths: Record<string, number>; headers?: Record<string, string>; body?: unknown }) => {
+    const t = fakeTrial({ mutationId: 'pagination_huge:limit', status: 200, body: extra.body ?? OK_LIST, query: [...q, ['limit', '100000']] });
+    return { ...t, response: { ...(t.response as object), ...(extra.body !== undefined ? { body: extra.body } : {}), headers: { 'content-type': 'application/json', ...(extra.headers ?? {}) }, arrayLengths: extra.arrayLengths } };
+  };
+  const run = (t: Trial) => {
+    resetIds();
+    const base = fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q });
+    const present = fakeTrial({ mutationId: 'optional_present:limit', status: 200, body: OK_LIST, query: [...q, ['limit', '1']] }); // the comparison base for an optional param
+    return rulesClaims([base, present, { ...t, id: present.id + 1 }], [itemsEndpoint]).find((c) => c.claim_key === 'rule:page_size_clamp:get_v1_items:limit');
+  };
+  // 17 items, no Link, no total, documented maximum 100 not reached: the collection may just have 17 items.
+  assert.equal(run(huge({ arrayLengths: { '': 17 } })), undefined);
+  // Link rel="next": more pages exist, so 17 is a cap.
+  assert.match(run(huge({ arrayLengths: { '': 17 }, headers: { link: '<https://x/v1/items?page=2>; rel="next", <https://x/v1/items?page=9>; rel="last"' } }))!.statement, /values above 17 are clamped \(documented maximum 100\)/);
+  // A total field above the returned count.
+  assert.match(run(huge({ arrayLengths: { items: 30 }, body: { items: [{ id: 1 }], total: 500 } }))!.statement, /"limit"=100000 returns 30 item\(s\): values above 30 are clamped/);
+  // The documented maximum reached.
+  assert.match(run(huge({ arrayLengths: { '': 100 } }))!.statement, /values above 100 are clamped \(documented maximum 100\)/);
+});

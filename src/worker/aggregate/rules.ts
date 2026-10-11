@@ -230,8 +230,13 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
     if (n === null) continue;
     if (t.mutationType === 'pagination_huge' || t.mutationType === 'boundary_far_above_max') {
       const asked = Number(queryValue(t, t.paramName));
+      // Fewer items than asked proves a cap only when MORE items exist: a Link rel="next",
+      // a total field above n, or n reaching the documented maximum. Otherwise the
+      // collection may simply have n items (github-rest run #45 claimed caps of 17 on
+      // releases and 1 on a one-hit search).
       if (PAGE_SIZE_PARAM.test(t.paramName) && Number.isFinite(asked) && n > 0 && n < asked) {
-        out.push(claim('page_size_clamp', ep, t.paramName, 'pagination', 'observes', `"${t.paramName}"=${asked} returns ${n} item(s): values above ${n} are clamped${p?.maximum !== undefined ? ` (documented maximum ${p.maximum})` : ''} rather than rejected.`, [base, t]));
+        const more = hasNextLink(t) || (totalField(t) ?? 0) > n || (p?.maximum !== undefined && n >= p.maximum);
+        if (more) out.push(claim('page_size_clamp', ep, t.paramName, 'pagination', 'observes', `"${t.paramName}"=${asked} returns ${n} item(s): values above ${n} are clamped${p?.maximum !== undefined ? ` (documented maximum ${p.maximum})` : ''} rather than rejected.`, [base, t]));
       }
     }
     if (t.mutationType === 'pagination_beyond' && n === 0) {
@@ -274,6 +279,21 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
 
 /** The probed value for a parameter: last query occurrence, else the substituted path value. */
 const PAGE_SIZE_PARAM = /^(limit|per[-_]?page|page[-_]?size|count|max[-_]?results|page_limit)$/i;
+/** A Link header advertising another page. */
+function hasNextLink(t: Trial): boolean {
+  const link = (t.response as { headers?: Record<string, string> }).headers?.link ?? '';
+  return /rel="next"/.test(link);
+}
+/** A top-level total field in a list response (total_count, total, totalResults, count, numFound), when numeric. */
+function totalField(t: Trial): number | null {
+  const body = (t.response as { body?: unknown }).body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  for (const k of ['total_count', 'total', 'totalResults', 'count', 'numFound']) {
+    const v = (body as Record<string, unknown>)[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
 
 /**
  * What rate-limit tier a response was served at, compared with the baseline:
