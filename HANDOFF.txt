@@ -389,6 +389,33 @@ PRODUCT DIRECTION AGREED 2026-10-12 (Trey), in this order:
      LLM pass covers it. Per-key quotas on targets/trials per day.
      Do not accept users' model keys; 13 cents is not worth handling
      their secret. The HTTP traffic we send is the real cost/risk.
+  3. CONTRIBUTOR-VERIFIED TIER (BUILT 2026-10-12), as designed below:
+     - src/worker/redact.ts: redactInput() (secret-named headers/query
+       values -> '[redacted]' in STORED trial inputs + hash), restoreInput()
+       (verify re-injects from secretsOf(target)), expandEnvInTarget()
+       ( in headers, baseline, optional_values; applied by
+       loadTarget). Unit: tests/unit/redact.test.ts.
+     - Migration 0004: tools.tier ('server'|'contributor'),
+       claims.verified_by ('server'|'contributor:<prefix>'),
+       claims.verified_at.
+     - src/worker/contribute.ts: buildBundle() from the LOCAL db (claims +
+       trials as status/signature/probe only; error text omitted),
+       scrubBundle()/scrubProblem() (emails, tokens, bearer, long hex,
+       long digit runs except battery constants + epoch ranges),
+       bundleProblem() structural check. CLI 'contribute <tool> --to
+       <url> --key ak_ [--yes] [--out f]' prints statements, needs --yes.
+     - src/db/contributions.ts importContribution(): re-checks + re-scrubs,
+       refuses to overwrite server-tier tools, stores minimal trials
+       and claims with verified_by/verified_at = contributor's run time.
+       Endpoint POST /contribute on the HTTP server (key or admin).
+     - docs.ts: contributor banner (who, date, 'NOT re-verified since',
+       'evidence limited to status and shape'). listTools/toolKnowledge
+       expose tier.
+     - Tests: tests/unit/contribute-scrub.test.ts, tests/integration/
+       contribution.test.ts (local keyed run -> redacted + reproduces ->
+       bundle secret-free -> import -> banner -> server-tool protection
+       -> HTTP endpoint 401/200/400).
+     Original design notes follow.
   3. CONTRIBUTOR-VERIFIED TIER for keyed/paid APIs (last). Design:
      - The contributor runs the open-source worker LOCALLY with their
        own API key and their own model key. Nothing secret reaches us.

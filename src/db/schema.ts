@@ -31,6 +31,8 @@ export const tools = pgTable('tools', {
   name: text('name').notNull().unique(),
   kind: text('kind').notNull().default('rest_api'),
   category: text('category'),
+  /** 'server' = this server ran and re-verifies the trials; 'contributor' = a keyed user ran the worker locally (keyed API) and uploaded status+shape evidence. */
+  tier: text('tier').notNull().default('server'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -110,6 +112,8 @@ export const claims = pgTable(
     specSays: text('spec_says'),
     siblingNote: text('sibling_note'), // e.g. "open-meteo-forecast: accepts" when a sibling tool disagrees
     verified: boolean('verified').notNull().default(false),
+    verifiedBy: text('verified_by').notNull().default('server'), // server | contributor:<key prefix>
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(), // when the evidence last reproduced
     evidenceTrialIds: bigint('evidence_trial_ids', { mode: 'number' }).array().notNull(),
     expectations: jsonb('expectations').notNull(), // [{trial_id, status}] what each cited trial must show
     embedding: vector('embedding', { dimensions: 1024 }),

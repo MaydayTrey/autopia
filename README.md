@@ -123,6 +123,36 @@ joins every later pass like a file target, and the weekly LLM pass covers it.
 `get_request_status` reports pending / running / done / failed with the run id;
 `npm run autopia -- requests list` shows them all.
 
+## Contributor tier: APIs that need a key
+
+The server never holds anyone's credentials, so keyed APIs are tested where the key lives:
+on the contributor's machine. The same open-source worker runs there, with their API key,
+their model key, and their own database. Then one command uploads the result:
+
+```bash
+npm run autopia -- contribute my-keyed-api --to https://autopia-mcp.onrender.com --key ak_... --yes
+```
+
+**What the credential touches.** Put keys in the target file as `${ENV_VAR}` references in
+headers, baseline values, or optional values; they are resolved at load time, so the file can
+be committed. Stored trial inputs are **redacted** by name (authorization, cookie, api-key-style
+headers, api_key/token-style query params) before they reach any database; reproduction
+restores the real value from the target in memory. The secret is on the wire to the API and
+nowhere else.
+
+**What gets uploaded, by construction.** Claims, and evidence as status code plus response
+signature (a type shape with no values in it). No request inputs, no headers, no response
+bodies, no error-message text. Shapes cannot carry names or account numbers. The one remaining
+path is the claim statements themselves, so they are **scrubbed** twice, locally and on the
+server: anything that looks like an email, a token, a bearer credential, a long hex string, or
+a long identifier number drops that claim. Without `--yes` the command prints every statement
+it would upload and stops.
+
+**What the sheet says.** Contributor tools are a visible trust tier. `get_tool_docs` opens
+with a banner naming the contributor key prefix and the date the claims last reproduced, states
+that this server has not re-verified them since, and that evidence is limited to status and
+shape. A tool this server verifies itself can never be overwritten by a contribution.
+
 ## Hosting: managed Postgres + the HTTP MCP server
 
 The embedded database is for one laptop. A hosted compendium uses a managed Postgres so the

@@ -55,7 +55,7 @@ export async function importDb(db: Db, d: Dump): Promise<Record<string, number>>
   await insertBatches(db, schema.toolVersions, reviveDates(d.tool_versions, ['discoveredAt']));
   await insertBatches(db, schema.testRuns, reviveDates(d.test_runs, ['startedAt', 'finishedAt']));
   await insertBatches(db, schema.trials, reviveDates(d.trials, ['createdAt']));
-  await insertBatches(db, schema.claims, reviveDates(d.claims, ['createdAt']).map((c) => ({ ...c, embedding: c.embedding ?? null })));
+  await insertBatches(db, schema.claims, reviveDates(d.claims, ['createdAt', 'verifiedAt']).map((c) => ({ ...c, embedding: c.embedding ?? null })));
   await insertBatches(db, schema.claimDiffs, reviveDates(d.claim_diffs, ['createdAt']));
   for (const t of ['tools', 'tool_versions', 'test_runs', 'trials', 'claims', 'claim_diffs']) {
     await db.execute(sql.raw(`SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 0) + 1, false)`));

@@ -27,7 +27,8 @@ import { extractEndpoints, fetchSpecText, parseSpecText } from './spec.js';
 import { loadTarget, selectEndpoints } from './target.js';
 import { latestClaimsForVersion } from './diff.js';
 import { loadEnv } from './env.js';
-import { readdir } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
+import { buildBundle, scrubBundle } from './contribute.js';
 import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
 import { pruneRuns } from '../db/retention.js';
@@ -50,6 +51,10 @@ const { values, positionals } = parseArgs({
     'dry-run': { type: 'boolean', default: false },
     quota: { type: 'string' },
     days: { type: 'string' },
+    to: { type: 'string' },
+    key: { type: 'string' },
+    yes: { type: 'boolean', default: false },
+    out: { type: 'string' },
     divergences: { type: 'boolean', default: false },
     version: { type: 'string' },
     tool: { type: 'string' },
@@ -263,6 +268,36 @@ async function main() {
         for (const t of u.byTarget) out(`    ${String(t.target).padEnd(28)} ${t.calls}`);
       }
       if (!u.byKeyTool.length) out('  no calls recorded');
+      break;
+    }
+    case 'contribute': {
+      // contribute <tool> --to <server url> --key <ak_...> [--yes] [--out bundle.json]
+      // Builds a bundle from the LOCAL database (status + shape evidence, no inputs/bodies),
+      // scrubs statements, prints what would be uploaded, and uploads with --yes.
+      const db = await getDb();
+      const toolName = need(args[0], 'tool name');
+      const { clean, rejected } = scrubBundle(await buildBundle(db, toolName));
+      out(`bundle for ${clean.tool.name}: ${clean.claims.length} claims, ${clean.trials.length} evidence trials (status + shape only), run finished ${clean.run.finished_at}`);
+      for (const r of rejected) out(`  dropped ${r.claim_key}: ${r.reason}`);
+      if (values.out) {
+        await writeFile(values.out, JSON.stringify(clean));
+        out(`wrote ${values.out}`);
+      }
+      if (!values.to) {
+        out('no --to given; nothing uploaded. Statements that would be uploaded:');
+        for (const c of clean.claims) out(`  - ${c.statement}`);
+        break;
+      }
+      if (!values.yes) {
+        out('statements that would be uploaded:');
+        for (const c of clean.claims) out(`  - ${c.statement}`);
+        out('re-run with --yes to upload them.');
+        break;
+      }
+      const res = await fetch(`${values.to.replace(/\/+$/, '')}/contribute`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${need(values.key, '--key')}` }, body: JSON.stringify(clean) });
+      const body = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) throw new Error(`upload failed (${res.status}): ${String(body.error)}`);
+      out(`uploaded: ${JSON.stringify(body)}`);
       break;
     }
     case 'prune': {

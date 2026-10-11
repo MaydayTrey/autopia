@@ -132,7 +132,19 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     lines.push('', 'No versions recorded yet.');
     return lines.join('\n');
   }
-  lines.push('', `Spec: ${k.version.spec_url}`, `Version: ${k.version.label ?? 'unlabeled'} (spec hash ${k.version.spec_hash.slice(0, 12)}), discovered ${new Date(k.version.discovered_at).toISOString().slice(0, 10)}`, `Verified claims: ${claims.length} from run #${k.run_id ?? '-'}. Every claim below reproduced when re-run; numbers in brackets are the trial ids that back it.`);
+  lines.push('', `Spec: ${k.version.spec_url}`, `Version: ${k.version.label ?? 'unlabeled'} (spec hash ${k.version.spec_hash.slice(0, 12)}), discovered ${new Date(k.version.discovered_at).toISOString().slice(0, 10)}`);
+  if (k.tier === 'contributor') {
+    const who = [...new Set(claims.map((c) => c.verified_by))].join(', ') || 'a contributor';
+    const when = claims.length ? new Date(Math.max(...claims.map((c) => new Date(c.verified_at).getTime()))).toISOString().slice(0, 10) : 'unknown';
+    lines.push(
+      '',
+      `> **Trust tier: contributor-verified.** This API needs credentials, so this server could not run it. The claims below were produced and reproduced by ${who} on ${when}, on their machine with their key, and have NOT been re-verified since. Evidence is limited to HTTP status and response shape; no request inputs or response bodies were uploaded.`,
+      '',
+      `Claims: ${claims.length} from run #${k.run_id ?? '-'}. Numbers in brackets are the uploaded evidence trial ids.`,
+    );
+  } else {
+    lines.push(`Verified claims: ${claims.length} from run #${k.run_id ?? '-'}. Every claim below reproduced when re-run; numbers in brackets are the trial ids that back it.`);
+  }
 
   const spec = claims.filter((c) => c.divergence_type === 'spec');
   lines.push('', `## Where behavior contradicts the spec (${spec.length})`);

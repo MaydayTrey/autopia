@@ -4,6 +4,7 @@
  * supplies known-valid baseline values where the spec has no example.
  */
 import { readFile } from 'node:fs/promises';
+import { expandEnvInTarget } from './redact.js';
 
 export interface TargetConfig {
   name: string; // tool name in the DB, e.g. "open-meteo-forecast"
@@ -37,7 +38,8 @@ export function selectEndpoints<T extends { path: string }>(endpoints: T[], targ
 
 export async function loadTarget(file: string): Promise<TargetConfig> {
   const raw = JSON.parse(await readFile(file, 'utf8')) as Partial<TargetConfig>;
-  return validateTarget(raw);
+  // Header values may reference ${ENV_VARS}, so a committed target never contains a key.
+  return expandEnvInTarget(validateTarget(raw));
 }
 
 export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {

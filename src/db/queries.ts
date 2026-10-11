@@ -38,6 +38,8 @@ export interface ClaimView {
   spec_says: string | null;
   sibling_note: string | null;
   verified: boolean;
+  verified_by: string; // 'server' | 'contributor:<key prefix>'
+  verified_at: Date;
   evidence: TrialRef[];
 }
 
@@ -73,6 +75,7 @@ export async function listTools(db: Db) {
       name: t.name,
       kind: t.kind,
       category: t.category,
+      tier: t.tier,
       versions: versions.length,
       latest_version_id: latest?.id ?? null,
       latest_version_label: latest?.versionLabel ?? null,
@@ -154,6 +157,8 @@ export async function withEvidence(db: Db, claims: Claim[]): Promise<ClaimView[]
     spec_says: c.specSays,
     sibling_note: c.siblingNote,
     verified: c.verified,
+    verified_by: c.verifiedBy,
+    verified_at: c.verifiedAt,
     evidence: c.evidenceTrialIds.map((id) => trials.get(id)).filter((t): t is Trial => !!t).map(toTrialRef),
   }));
 }
@@ -163,7 +168,7 @@ export async function toolKnowledge(db: Db, toolName: string, versionId?: number
   const tool = await resolveTool(db, toolName);
   if (!tool) return null;
   const version = await resolveVersion(db, tool.id, versionId);
-  if (!version) return { tool: tool.name, version: null, run_id: null, claims: [], by_kind: {} };
+  if (!version) return { tool: tool.name, tier: tool.tier, version: null, run_id: null, claims: [], by_kind: {} };
   const cur = await latestClaimsForVersion(db, version.id);
   let claims = cur?.claims ?? [];
   if (onlyDivergences) claims = claims.filter((c) => c.divergenceType);
@@ -171,7 +176,7 @@ export async function toolKnowledge(db: Db, toolName: string, versionId?: number
   const views = await withEvidence(db, claims);
   const by_kind: Record<string, ClaimView[]> = {};
   for (const v of views) (by_kind[v.kind] ??= []).push(v);
-  return { tool: tool.name, version: { id: version.id, label: version.versionLabel, spec_url: version.specUrl, spec_hash: version.specHash, discovered_at: version.discoveredAt }, run_id: cur?.runId ?? null, claims: views, by_kind };
+  return { tool: tool.name, tier: tool.tier, version: { id: version.id, label: version.versionLabel, spec_url: version.specUrl, spec_hash: version.specHash, discovered_at: version.discoveredAt }, run_id: cur?.runId ?? null, claims: views, by_kind };
 }
 
 /** Text search over current claims. Postgres full-text first, ILIKE fallback for short/odd queries. */

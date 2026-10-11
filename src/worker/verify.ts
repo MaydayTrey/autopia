@@ -15,11 +15,14 @@ import type { CandidateClaim } from './claims.js';
 import { runOne, type ExerciseOptions } from './exercise.js';
 import type { TrialInput } from './http.js';
 import { log } from './log.js';
+import { restoreInput } from './redact.js';
 import { describeSignature, signaturesEqual, type ResponseSignature } from './signature.js';
 
 export interface VerifyOptions extends ExerciseOptions {
   reproduce?: boolean; // default true; false = evidence check only (debugging)
   minIntervalMs?: number;
+  /** Credentials to put back into redacted stored inputs before re-executing (from the target). */
+  secrets?: Record<string, string>;
 }
 
 export interface VerifyResult {
@@ -64,14 +67,15 @@ export async function verify(claims: CandidateClaim[], trialsById: Map<number, T
   for (const id of ids) {
     const t = trialsById.get(id)!;
     const stored = t.signature as unknown as ResponseSignature;
-    let { out } = await runOne(t.input as unknown as TrialInput, opts);
+    const input = restoreInput(t.input as unknown as TrialInput, opts.secrets ?? {});
+    let { out } = await runOne(input, opts);
     let same = signaturesEqual(stored, out.signature);
     if (!same) {
       // One retry: a transient upstream hiccup must not discard a true claim.
       // The retry must match the STORED signature exactly as before; no loosening.
       log.debug('verify', `trial ${id} (${t.mutationId}) mismatched once (${describeSignature(out.signature)}); retrying`);
       if (interval > 0) await sleep(interval);
-      out = (await runOne(t.input as unknown as TrialInput, opts)).out;
+      out = (await runOne(input, opts)).out;
       same = signaturesEqual(stored, out.signature);
     }
     cache.set(id, same);

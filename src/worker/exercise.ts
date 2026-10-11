@@ -12,6 +12,7 @@ import type { NewTrial, Trial } from '../db/schema.js';
 import { planTrials, type Mutation } from './battery/index.js';
 import { execute, hashInput, truncateBody, type FetchLike, type TrialInput } from './http.js';
 import { log } from './log.js';
+import { redactInput } from './redact.js';
 import { endpointLabel, type EndpointSpec } from './spec.js';
 import type { TargetConfig } from './target.js';
 
@@ -48,11 +49,13 @@ export function planAll(endpoints: EndpointSpec[], target: TargetConfig, maxTria
 /** Execute one trial input and shape it as a DB row (no insert). Reused by VERIFY. */
 export async function runOne(input: TrialInput, opts: ExerciseOptions) {
   const out = await execute(input, { timeoutMs: opts.timeoutMs, fetchImpl: opts.fetchImpl, sleep: opts.sleep });
+  // Credentials never reach the database: the stored input (and its hash) are the redacted form.
+  const stored = redactInput(input);
   return {
     out,
     row: {
-      input: input as unknown as object,
-      inputHash: hashInput(input),
+      input: stored as unknown as object,
+      inputHash: hashInput(stored),
       response: { status: out.status, headers: out.headers, body: truncateBody(out.body), bodyKind: out.bodyKind } as object,
       signature: out.signature as unknown as object,
       statusCode: out.status,

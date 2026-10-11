@@ -25,6 +25,7 @@ import { listTools, listVersions, resolveTool, searchClaims, toolKnowledge, vers
 import { renderToolDocs } from '../db/docs.js';
 import { logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
+import { importContribution } from '../db/contributions.js';
 import { loadEnv } from '../worker/env.js';
 import { log } from '../worker/log.js';
 
@@ -226,6 +227,37 @@ async function main() {
       if (!res.headersSent) res.status(500).json({ error: 'internal error' });
     }
   });
+  // Contributor tier: a keyed user uploads a bundle built locally by `autopia contribute`.
+  // The bundle carries claims + status/shape evidence only; the server scrubs statements again.
+  app.post('/contribute', express.json({ limit: '8mb' }), async (req, res) => {
+    const auth = req.headers.authorization ?? '';
+    const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    let contributor: { keyId: number | null; prefix: string } | null = null;
+    if (presented.startsWith('ak_')) {
+      const v = await verifyKey(await getDb(), presented).catch((e: Error) => ({ ok: false as const, status: 401 as const, reason: `key check failed: ${e.message}` }));
+      if (!v.ok) {
+        res.status(v.status).json({ error: v.reason });
+        return;
+      }
+      contributor = { keyId: v.key.id, prefix: v.key.prefix };
+    } else if (adminToken && presented === adminToken) {
+      contributor = { keyId: null, prefix: 'admin' };
+    }
+    if (!contributor) {
+      res.status(401).json({ error: 'contributions need a per-user key (Authorization: Bearer ak_...)' });
+      return;
+    }
+    const t0 = performance.now();
+    try {
+      const r = await importContribution(await getDb(), contributor, req.body);
+      await logCall(await getDb(), contributor.keyId, 'contribute', (req.body as { tool?: { name?: string } })?.tool?.name ?? null, true, performance.now() - t0).catch(() => undefined);
+      res.json({ ok: true, ...r, verified_by: `contributor:${contributor.prefix}` });
+    } catch (e) {
+      await logCall(await getDb(), contributor.keyId, 'contribute', (req.body as { tool?: { name?: string } })?.tool?.name ?? null, false, performance.now() - t0).catch(() => undefined);
+      res.status(400).json({ error: (e as Error).message });
+    }
+  });
+
   const methodNotAllowed = (_req: Request, res: Response) => res.status(405).json({ error: 'stateless server: use POST /mcp' });
   app.get('/mcp', methodNotAllowed);
   app.delete('/mcp', methodNotAllowed);
