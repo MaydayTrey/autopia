@@ -278,6 +278,7 @@ HOSTING PREP (2026-10-12): everything except the two account steps
   Blueprint), pastes DATABASE_URL, copies the generated token. Free
   LIVE 2026-10-12: https://autopia-mcp.onrender.com (Render free,
   auto-deploys from main). /healthz -> {ok:true, db:'ok'}; POST /mcp
+  verified end-to-end by Trey (tools/list returned all 7 tools);
   needs Authorization: Bearer <AUTOPIA_MCP_TOKEN from the Render
   Environment tab>; anonymous -> 401, GET -> 405. First deploy timed
   out (health check blocked on a pg connect with no timeout; tsx
