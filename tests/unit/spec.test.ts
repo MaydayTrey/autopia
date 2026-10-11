@@ -94,3 +94,12 @@ test('canonicalJson and hashSpec ignore key order', () => {
   assert.equal(hashSpec(a), hashSpec(b));
   assert.notEqual(hashSpec(a), hashSpec({ ...a, b: 2 }));
 });
+
+test('extractEndpoints: a target-supplied server fills in a missing servers block, and can override', () => {
+  const noServers = { openapi: '3.1.1', info: { title: 'N', version: '3' }, paths: { '/api/v3/Version': { get: {} } } };
+  assert.throws(() => extractEndpoints(noServers), /set "server" in the target file/);
+  assert.equal(extractEndpoints(noServers, { server: 'https://date.nager.at' }).endpoints[0].server, 'https://date.nager.at');
+  const withServers = { ...noServers, servers: [{ url: 'https://declared.example.com' }] };
+  assert.equal(extractEndpoints(withServers, { server: 'https://mine.example.com' }).endpoints[0].server, 'https://declared.example.com', 'declared wins by default');
+  assert.equal(extractEndpoints(withServers, { server: 'https://mine.example.com', overrideServer: true }).endpoints[0].server, 'https://mine.example.com');
+});

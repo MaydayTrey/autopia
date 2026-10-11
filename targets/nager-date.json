@@ -1,0 +1,19 @@
+{
+  "name": "nager-date",
+  "category": "reference-data",
+  "spec_url": "https://date.nager.at/openapi/community-v3.json",
+  "server": "https://date.nager.at",
+  "baseline": {
+    "/api/v3/CountryInfo/{countryCode}": { "countryCode": "US" },
+    "/api/v3/LongWeekend/{year}/{countryCode}": { "year": "2026", "countryCode": "US" },
+    "/api/v3/PublicHolidays/{year}/{countryCode}": { "year": "2026", "countryCode": "US" },
+    "/api/v3/IsTodayPublicHoliday/{countryCode}": { "countryCode": "US" },
+    "/api/v3/NextPublicHolidays/{countryCode}": { "countryCode": "US" }
+  },
+  "optional_values": {
+    "/api/v3/LongWeekend/{year}/{countryCode}": { "availableBridgeDays": "1", "subdivisionCode": "US-CA" },
+    "/api/v3/IsTodayPublicHoliday/{countryCode}": { "countyCode": "US-CA", "offset": "0" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 300 },
+  "max_trials": 400
+}

@@ -133,7 +133,13 @@ function schemaType(schema: AnyObj | undefined): ParamType {
   return 'unknown';
 }
 
-export function extractEndpoints(docIn: unknown): ParsedSpec {
+export interface ExtractOptions {
+  /** Base URL used when the spec declares no absolute server; if `overrideServer` is true it replaces the spec's servers. */
+  server?: string;
+  overrideServer?: boolean;
+}
+
+export function extractEndpoints(docIn: unknown, opts: ExtractOptions = {}): ParsedSpec {
   if (!isObj(docIn)) throw new SpecError('Spec root is not an object');
   const doc = docIn;
   const openapi = String(doc.openapi ?? '');
@@ -175,9 +181,10 @@ export function extractEndpoints(docIn: unknown): ParsedSpec {
     if (op.requestBody) continue;
 
     const servers = (Array.isArray(op.servers) && op.servers) || (Array.isArray(item.servers) && item.servers) || rootServers;
-    const serverUrl = isObj(servers[0]) ? String(servers[0].url ?? '') : '';
+    const declared = isObj(servers[0]) ? String(servers[0].url ?? '') : '';
+    const serverUrl = opts.server && (opts.overrideServer || !/^https?:\/\//i.test(declared)) ? opts.server : declared;
     if (!/^https?:\/\//i.test(serverUrl)) {
-      throw new SpecError(`Endpoint ${path} has no absolute server URL (got "${serverUrl}")`);
+      throw new SpecError(`Endpoint ${path} has no absolute server URL (got "${declared}"); set "server" in the target file`);
     }
 
     const merged = new Map<string, ParamSpec>();

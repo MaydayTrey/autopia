@@ -19,6 +19,8 @@ export interface TargetConfig {
   max_trials?: number;
   /** Only exercise these spec paths (exact match). Omit to exercise every GET endpoint. */
   include_paths?: string[];
+  /** Base URL to use when the spec declares no absolute server (or to override it). */
+  server?: string;
 }
 
 /** Apply include_paths; errors if a listed path is not in the spec (typo guard). */
@@ -54,5 +56,6 @@ export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {
     rate: { concurrency: c, min_interval_ms: i },
     max_trials: raw.max_trials ?? 500,
     include_paths: Array.isArray(raw.include_paths) ? raw.include_paths.map(String) : undefined,
+    server: typeof raw.server === 'string' && /^https?:\/\//i.test(raw.server) ? raw.server.replace(/\/+$/, '') : undefined,
   };
 }
