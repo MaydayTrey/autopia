@@ -195,6 +195,21 @@ STATE AS OF 2026-10-12 (all three tools on battery 1.2.0, commit f679cac+)
     accepts (real limit 5031). Same vendor, same param name,
     different limits; flagged as a sibling divergence on both.
 
+FOURTH TARGET: PokéAPI (targets/pokeapi.json, category reference-data)
+  OpenAPI 3.1, 102 paths; we exercise 6 (two list endpoints with
+  limit/offset/q, four by-id). Run #19: 91 trials -> 87 verified, 0
+  rejected, 4 SPEC divergences on the first run: limit and offset are
+  declared integer on both list endpoints but "abc" is accepted
+  (200). Also: limit/offset 0, 100000, 999999999 all accepted; the
+  documented "q" query param returns 403 text for ANY value (WAF?);
+  empty path id -> 200 with a different (list) shape; invalid ids 404.
+  No siblings yet (first tool in its category).
+  Battery 1.2.1: the legacy Authorization-Bearer guess is gone. With
+  no apiKey scheme, auth probes run only on a header the target file
+  already sends. PokéAPI's spec says security:true without an apiKey
+  scheme, which produced six meaningless 'accepted' auth claims in
+  run #19; re-run after this change to clear them.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

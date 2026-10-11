@@ -21,7 +21,7 @@ import { sha256 } from '../spec.js';
 import type { TrialInput } from '../http.js';
 import type { TargetConfig } from '../target.js';
 
-export const BATTERY_VERSION = '1.2.0';
+export const BATTERY_VERSION = '1.2.1';
 
 export const MUTATION_TYPES = [
   'baseline',
@@ -261,11 +261,19 @@ export function planTrials(ep: EndpointSpec, target: TargetConfig): Mutation[] {
       add('no_auth', s.name, `Omit auth header ${s.name}`, 'baseline', withInput(b.input, { headers: { ...b.input.headers, [key]: '' } }));
     }
   }
-  if (schemes.length === 0 && (ep.hasSecurity || Object.keys(b.input.headers).some((h) => /auth|api[-_]?key|token/i.test(h)))) {
-    const headers = { ...b.input.headers };
-    for (const h of Object.keys(headers)) if (/auth|api[-_]?key|token/i.test(h)) headers[h] = INVALID_CREDENTIAL;
-    if (!Object.keys(headers).some((h) => /auth|api[-_]?key|token/i.test(h))) headers['authorization'] = `Bearer ${INVALID_CREDENTIAL}`;
-    add('bad_auth', null, 'Send invalid credentials in the auth header', 'baseline', withInput(b.input, { headers }));
+  // Legacy fallback: only when the TARGET already sends an auth-like header (so we know which one
+  // the API reads). A bare "security: true" with no apiKey scheme gets no probe: guessing a header
+  // the API never looks at produces a true-but-meaningless "accepted" claim (seen on NWS and PokéAPI).
+  if (schemes.length === 0) {
+    const authHeaders = Object.keys(b.input.headers).filter((h) => /auth|api[-_]?key|token/i.test(h));
+    if (authHeaders.length) {
+      const headers = { ...b.input.headers };
+      for (const h of authHeaders) headers[h] = INVALID_CREDENTIAL;
+      add('bad_auth', authHeaders[0], `Send an invalid value in auth header ${authHeaders[0]}`, 'baseline', withInput(b.input, { headers }));
+      const missing = { ...b.input.headers };
+      for (const h of authHeaders) missing[h] = '';
+      add('no_auth', authHeaders[0], `Omit auth header ${authHeaders[0]}`, 'baseline', withInput(b.input, { headers: missing }));
+    }
   }
 
   add('wrong_content_type', null, 'Ask for XML via Accept and Content-Type headers', 'baseline', withInput(b.input, { headers: { ...b.input.headers, accept: 'application/xml', 'content-type': 'application/xml' } }));

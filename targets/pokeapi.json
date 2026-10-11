@@ -1,0 +1,25 @@
+{
+  "name": "pokeapi",
+  "category": "reference-data",
+  "spec_url": "https://raw.githubusercontent.com/PokeAPI/pokeapi/master/openapi.yml",
+  "include_paths": [
+    "/api/v2/pokemon/",
+    "/api/v2/pokemon/{id}/",
+    "/api/v2/ability/",
+    "/api/v2/berry/{id}/",
+    "/api/v2/type/{id}/",
+    "/api/v2/pokemon/{pokemon_id}/encounters"
+  ],
+  "baseline": {
+    "/api/v2/pokemon/{id}/": { "id": "25" },
+    "/api/v2/berry/{id}/": { "id": "1" },
+    "/api/v2/type/{id}/": { "id": "10" },
+    "/api/v2/pokemon/{pokemon_id}/encounters": { "pokemon_id": "25" }
+  },
+  "optional_values": {
+    "/api/v2/pokemon/": { "limit": "5", "offset": "0", "q": "pika" },
+    "/api/v2/ability/": { "limit": "5", "offset": "0", "q": "over" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 300 },
+  "max_trials": 400
+}

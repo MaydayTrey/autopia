@@ -133,3 +133,15 @@ test('batteryHash is stable', () => {
   assert.equal(batteryHash(), batteryHash());
   assert.match(batteryHash(), /^[0-9a-f]{64}$/);
 });
+
+test('planTrials: auth fallback probes only a header the target actually sends; bare security gets none', () => {
+  const secured: EndpointSpec = { ...itemsEndpoint, hasSecurity: true, authSchemes: [] };
+  const noneSent = planTrials(secured, validateTarget({ name: 'a', spec_url: 'x', baseline: { '/v1/items': { q: 'hello' } } }));
+  assert.ok(!noneSent.some((m) => m.type === 'bad_auth' && m.param === null), 'no generic Authorization guess');
+  const withHeader = Object.fromEntries(
+    planTrials(secured, validateTarget({ name: 'a', spec_url: 'x', baseline: { '/v1/items': { q: 'hello' } }, headers: { 'x-api-key': 'real' } })).map((m) => [m.id, m]),
+  );
+  assert.equal(withHeader['bad_auth:x-api-key'].input.headers['x-api-key'], 'invalid-key-autopia');
+  assert.equal(withHeader['no_auth:x-api-key'].input.headers['x-api-key'], '');
+  assert.equal(withHeader.baseline.input.headers['x-api-key'], 'real');
+});
