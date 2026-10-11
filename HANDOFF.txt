@@ -208,7 +208,8 @@ FOURTH TARGET: PokéAPI (targets/pokeapi.json, category reference-data)
   no apiKey scheme, auth probes run only on a header the target file
   already sends. PokéAPI's spec says security:true without an apiKey
   scheme, which produced six meaningless 'accepted' auth claims in
-  run #19; re-run after this change to clear them.
+  run #19. Run #20 (battery 1.2.1): 85 trials -> 84 verified, 0
+  rejected, 0 auth claims, same 4 spec divergences. Cleared.
 
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
