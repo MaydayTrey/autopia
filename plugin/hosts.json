@@ -1,0 +1,20 @@
+{
+  "note": "Snapshot of list_tools hosts, used only when the server cannot be reached yet (cold start) or no key is configured. The hook refreshes the live list daily.",
+  "snapshot_at": "2026-10-12",
+  "hosts": {
+    "api.anthropic.com": ["anthropic-api"],
+    "api.binance.com": ["binance-spot-public"],
+    "api.binance.us": ["binance-us-spot-public"],
+    "api.frankfurter.dev": ["frankfurter"],
+    "api.github.com": ["github-rest"],
+    "date.nager.at": ["nager-date"],
+    "registry.npmjs.org": ["npm-registry"],
+    "api.weather.gov": ["nws-weather-gov"],
+    "air-quality-api.open-meteo.com": ["open-meteo-air-quality"],
+    "api.open-meteo.com": ["open-meteo-elevation", "open-meteo-forecast"],
+    "marine-api.open-meteo.com": ["open-meteo-marine"],
+    "openlibrary.org": ["openlibrary"],
+    "pokeapi.co": ["pokeapi"],
+    "pypi.org": ["pypi"]
+  }
+}

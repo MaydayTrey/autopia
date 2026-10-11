@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "autopia": {
+      "type": "http",
+      "url": "${user_config.autopia_url}",
+      "headers": {
+        "Authorization": "Bearer ${user_config.autopia_key}"
+      }
+    }
+  }
+}

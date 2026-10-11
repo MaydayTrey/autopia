@@ -81,8 +81,39 @@ DONE THIS SESSION (2026-10-12, second session)
      covers all four cases. The mock API had the same false positive
      ('limit=100000 returns 3 items: values above 3 are clamped').
 
+PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
+  Code plugin (validated with 'claude plugin validate ./plugin'): PreToolUse
+  hook on Bash|WebFetch (plugin/scripts/autopia-hook.mjs + lib.mjs, plain
+  Node, no deps) that matches the command/URL against list_tools hosts and
+  injects the trimmed behavior sheet as additionalContext once per host per
+  session; fails open on every error; caches hosts 24h / sheets 6h /
+  session state under CLAUDE_PLUGIN_DATA; key from plugin userConfig
+  (CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY) or AUTOPIA_API_KEY; an explicit
+  AUTOPIA_MCP_URL (self-hosted / open endpoint) works without a key.
+  Also .mcp.json (registers the hosted server with the user's key), a
+  SKILL.md with TRIGGER/SKIP text, hosts.json snapshot, README. Repo-root
+  .claude-plugin/marketplace.json -> install: claude plugin install autopia
+  --marketplace MaydayTrey/autopia (REPO IS PRIVATE: others cannot install
+  until it is public or the plugin moves to a public repo). Local trial:
+  claude --plugin-dir ./plugin. Tests: tests/unit/plugin-hook.test.ts,
+  tests/integration/plugin-hook.test.ts (real HTTP server). Smoke-tested
+  against the hosted server with a dev key 'plugin-dev' (revoke with
+  'keys revoke plugin-dev' when done). Deploy check passed: hosted server
+  resolves api.github.com and full URLs.
+  NOT DONE (Trey's reviewer feedback, do first next session):
+   a. 'since' probes: compare arrayLengths of probe vs comparison trial.
+      0 items while the base has >0 = 'silently applied as an impossible
+      filter' (github commits since=not-a-date); same count = 'ignored';
+      rejected = as now. Three different statements, not 'accepts'.
+   b. docs.ts: collapse spec divergences that are one pattern across
+      endpoints into one line (github: 12 lines = 'enum/integer not
+      validated on sort, order, page, per_page'); cap inline evidence to
+      ~6 ids + 'and N more'; a 'common to most endpoints (not X)' group
+      for nulls/timestamps lines repeated on all but one endpoint.
+   c. Dogfood the plugin in a real session and watch the injection.
+
 IMMEDIATE NEXT STEPS (in order)
-  1. Trey says 'push' (2 commits since b319509). Then confirm on the live
+  1. Trey says 'push' (3 commits since b319509, incl. the plugin). Then confirm on the live
      server that get_tool_docs {"tool":"api.github.com"} resolves.
   2. Confirm github-rest run #50 (rules-only) finished with 0 rejected
      and the releases/search clamp lines are gone from 'docs github-rest'.

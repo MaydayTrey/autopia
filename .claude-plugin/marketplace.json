@@ -1,0 +1,12 @@
+{
+  "name": "autopia",
+  "description": "Verified HTTP API behavior for coding agents: a PreToolUse hook that injects behavior sheets before calls to covered APIs, plus the Autopia MCP server and skill.",
+  "owner": { "name": "Trey (MaydayTrey)" },
+  "plugins": [
+    {
+      "name": "autopia",
+      "source": "./plugin",
+      "description": "Inject verified API behavior sheets before Bash/WebFetch calls to covered hosts; MCP tools for the error path."
+    }
+  ]
+}
