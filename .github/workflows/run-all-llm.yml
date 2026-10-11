@@ -19,5 +19,6 @@ jobs:
       - run: npm run run-all -- --prune-days 14
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # built-in Actions token: lets targets/github.json re-verify nightly (1,000 req/h)
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTOPIA_LOG: info

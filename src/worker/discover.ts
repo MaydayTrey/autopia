@@ -11,7 +11,7 @@ import type { Db } from '../db/client.js';
 import { schema } from '../db/client.js';
 import type { Tool, ToolVersion } from '../db/schema.js';
 import { log } from './log.js';
-import { extractEndpoints, fetchSpecText, hashSpec, parseSpecText, type ParsedSpec } from './spec.js';
+import { extractEndpoints, fetchSpecText, hashSpec, parseSpecText, trimSpec, type ParsedSpec } from './spec.js';
 import type { TargetConfig } from './target.js';
 
 export interface DiscoverResult {
@@ -41,9 +41,11 @@ export async function discover(db: Db, target: TargetConfig): Promise<DiscoverRe
     .where(and(eq(schema.toolVersions.toolId, tool.id), eq(schema.toolVersions.specHash, specHash)));
   let isNewVersion = false;
   if (!version) {
+    // Hash the full document (any upstream change = new version); store only the paths we use.
+    const blob = target.include_paths?.length ? trimSpec(doc, target.include_paths) : doc;
     [version] = await db
       .insert(schema.toolVersions)
-      .values({ toolId: tool.id, versionLabel: parsed.version || null, specUrl: target.spec_url, specBlob: doc as object, specHash })
+      .values({ toolId: tool.id, versionLabel: parsed.version || null, specUrl: target.spec_url, specBlob: blob as object, specHash })
       .returning();
     isNewVersion = true;
     log.info('discover', `new tool_version #${version.id} (label "${parsed.version}")`);

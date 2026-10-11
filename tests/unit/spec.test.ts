@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalJson, extractEndpoints, hashSpec, parseSpecText, SpecError } from '../../src/worker/spec.js';
+import { canonicalJson, extractEndpoints, hashSpec, parseSpecText, SpecError, trimSpec } from '../../src/worker/spec.js';
 
 const doc = {
   openapi: '3.1.0',
@@ -102,4 +102,30 @@ test('extractEndpoints: a target-supplied server fills in a missing servers bloc
   const withServers = { ...noServers, servers: [{ url: 'https://declared.example.com' }] };
   assert.equal(extractEndpoints(withServers, { server: 'https://mine.example.com' }).endpoints[0].server, 'https://declared.example.com', 'declared wins by default');
   assert.equal(extractEndpoints(withServers, { server: 'https://mine.example.com', overrideServer: true }).endpoints[0].server, 'https://mine.example.com');
+});
+
+test('trimSpec keeps only the chosen paths and the components they reference, transitively', () => {
+  const big = {
+    openapi: '3.0.3',
+    info: { title: 'Big', version: '1' },
+    servers: [{ url: 'https://api.example.com' }],
+    components: {
+      parameters: { Page: { name: 'page', in: 'query', schema: { $ref: '#/components/schemas/PageNum' } }, Unused: { name: 'x', in: 'query' } },
+      schemas: { PageNum: { type: 'integer' }, Item: { type: 'object', properties: { owner: { $ref: '#/components/schemas/Owner' } } }, Owner: { type: 'object' }, Orphan: { type: 'string' } },
+      securitySchemes: { key: { type: 'apiKey', name: 'X-Key', in: 'header' } },
+    },
+    paths: {
+      '/items': { get: { parameters: [{ $ref: '#/components/parameters/Page' }], responses: { '200': { content: { 'application/json': { schema: { $ref: '#/components/schemas/Item' } } } } } } },
+      '/other': { get: { parameters: [{ $ref: '#/components/parameters/Unused' }] } },
+      '/third': { get: {} },
+    },
+  };
+  const t = trimSpec(big, ['/items']) as typeof big & { 'x-autopia-trimmed': { kept_paths: number; original_paths: number } };
+  assert.deepEqual(Object.keys(t.paths), ['/items']);
+  assert.deepEqual(Object.keys(t.components.parameters).sort(), ['Page']);
+  assert.deepEqual(Object.keys(t.components.schemas).sort(), ['Item', 'Owner', 'PageNum'], 'transitive refs kept, orphans dropped');
+  assert.ok(t.components.securitySchemes, 'security schemes always kept');
+  assert.deepEqual(t['x-autopia-trimmed'], { kept_paths: 1, original_paths: 3 });
+  assert.equal(extractEndpoints(t).endpoints.length, 1, 'the trimmed document still parses');
+  assert.notEqual(hashSpec(t), hashSpec(big), 'hashes differ, which is why discover hashes the FULL document');
 });

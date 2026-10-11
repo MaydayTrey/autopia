@@ -93,6 +93,46 @@ function sortKeys(v: unknown): unknown {
   return v;
 }
 
+/**
+ * Keep only the given paths plus whatever they reference (transitively) under
+ * components, so a 13MB document like GitHub's stores and uploads as a few
+ * hundred KB when a target names a handful of endpoints. The spec HASH is
+ * always computed on the full document, so any upstream change still makes a
+ * new version; trimming only affects what is stored as spec_blob.
+ */
+export function trimSpec(docIn: unknown, keepPaths: string[]): unknown {
+  if (!isObj(docIn) || !isObj(docIn.paths)) return docIn;
+  const doc = docIn;
+  const allPaths = doc.paths as AnyObj;
+  const paths: AnyObj = {};
+  for (const p of keepPaths) if (p in allPaths) paths[p] = allPaths[p];
+  const components = isObj(doc.components) ? doc.components : {};
+  const kept: Record<string, AnyObj> = {};
+  const seen = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!isObj(node)) return;
+    if (typeof node.$ref === 'string' && node.$ref.startsWith('#/components/')) {
+      const [, , group, name] = node.$ref.split('/');
+      const key = `${group}/${name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        const target = isObj(components[group]) ? (components[group] as AnyObj)[name] : undefined;
+        if (target !== undefined) {
+          (kept[group] ??= {})[name] = target;
+          walk(target);
+        }
+      }
+    }
+    for (const v of Object.values(node)) walk(v);
+  };
+  walk(paths);
+  const out: AnyObj = { ...doc, paths, components: { ...kept } };
+  if (isObj(components.securitySchemes)) (out.components as AnyObj).securitySchemes = components.securitySchemes;
+  out['x-autopia-trimmed'] = { kept_paths: keepPaths.length, original_paths: Object.keys(allPaths).length };
+  return out;
+}
+
 export function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }

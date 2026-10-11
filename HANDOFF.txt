@@ -436,6 +436,22 @@ PRODUCT DIRECTION AGREED 2026-10-12 (Trey), in this order:
        credential headers from stored trial inputs (today target
        headers are copied into every trial row).
 
+GITHUB TARGET (2026-10-12): targets/github.json = first KEYED file
+  target, SERVER tier. headers.authorization = 'Bearer '
+  (env expansion, see redact.ts); locally Trey sets GITHUB_TOKEN (a
+  fine-grained PAT, public-repo read only); on GitHub Actions the
+  built-in secrets.GITHUB_TOKEN is passed to run-all / run-all-llm
+  (1,000 req/h, enough for 237 trials x2). Stored trial inputs are
+  redacted; verify restores the token from the target in memory.
+  7 endpoints incl. /search/repositories (q required) and 4 path-param
+  endpoints on github/rest-api-description (public repo on purpose).
+  Spec is 13MB / 816 paths: spec.ts trimSpec() now stores only the
+  selected paths + transitively referenced components as spec_blob
+  (hash still over the FULL doc, so any upstream change = new version;
+  GitHub changes its spec often -> expect real version diffs here).
+  Contributor tier remains the route for APIs whose token cannot live
+  in Actions secrets.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,
