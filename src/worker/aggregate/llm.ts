@@ -31,10 +31,16 @@ You will receive (1) the documented parameters of each endpoint, (2) a table of 
 
 Rules of this contract:
 - Cite only trial ids that appear in the table. For each cited trial, report the exact HTTP status shown in the table.
+- Every trial row names its comparison trial in the "compare_to" column (the request it should be judged against). When you cite a probe trial, ALSO cite its comparison trial, so the evidence shows the contrast and both must reproduce. A claim built from several probes cites each probe and the comparison they share.
 - Make no claim that its cited trials do not directly support. If the trials are insufficient, make no claim. Prefer silence over guessing.
 - Do not restate claims already listed under "Already claimed by rules".
 - One sentence per statement, concrete, with the observed HTTP status. No speculation about causes.
-- "diverges_from_spec" is true only when the documented parameters contradict the observed behavior; then put the documented fact in "spec_says".
+- Kinds:
+    required / type / auth / pagination / error_behavior: as named.
+    undocumented_constraint: a rule the API enforces that the documented parameters never state, such as two parameters that must be sent together, an implicit default, or an ordering requirement. This is NOT a contradiction of the spec; set diverges_from_spec=false and describe the rule in the statement.
+    undocumented: other behavior the documentation never mentions (redirects, extra response keys, tolerance of odd input).
+    other: anything else.
+- "diverges_from_spec" is true ONLY when a documented fact (required flag, type, enum, minimum/maximum) contradicts the observed behavior; then put the documented fact in "spec_says". Silence in the spec is never a divergence.
 - Return at most 25 claims. Fewer, well-supported claims are better.`;
 
 const RESPONSE_SCHEMA = {
@@ -55,16 +61,33 @@ export function buildSummary(trials: Trial[], endpoints: EndpointSpec[], known: 
       lines.push(`- ${p.name} | ${p.in} | ${p.required ? 'required' : 'optional'} | ${p.type}${p.itemType ? `<${p.itemType}>` : ''} | ${c || '-'}`);
     }
     lines.push('');
-    lines.push('Trials (id | probe | param | query | status | body summary):');
-    const base = trials.find((t) => t.endpoint === label && t.mutationId === 'baseline');
-    for (const t of trials.filter((t) => t.endpoint === label)) {
-      lines.push(`- ${t.id} | ${t.mutationId} | ${t.paramName ?? '-'} | ${queryDiff(t, base)} | ${t.statusCode ?? 'no-response'} | ${bodySummary(t)}`);
+    lines.push('Trials (id | probe | param | compare_to | query | status | body summary):');
+    const mine = trials.filter((t) => t.endpoint === label);
+    const base = mine.find((t) => t.mutationId === 'baseline');
+    const optional = new Set(ep.params.filter((p) => !p.required).map((p) => p.name));
+    const byMutation = new Map(mine.map((t) => [t.mutationId, t]));
+    for (const t of mine) {
+      const cmp = comparisonTrial(t, base, optional, byMutation);
+      lines.push(`- ${t.id} | ${t.mutationId} | ${t.paramName ?? '-'} | ${cmp ? `#${cmp.id}` : '-'} | ${queryDiff(t, base)} | ${t.statusCode ?? 'no-response'} | ${bodySummary(t)}`);
     }
     lines.push('');
   }
   lines.push('## Already claimed by rules (do not repeat)');
   for (const k of known) lines.push(`- [${k.kind}] ${k.statement}`);
   return lines.join('\n');
+}
+
+/**
+ * The trial a probe should be judged against: the baseline, or for a probe on
+ * an OPTIONAL parameter, the optional_present trial for that parameter (same
+ * logic the rules use). The baseline itself has no comparison.
+ */
+export function comparisonTrial(t: Trial, base: Trial | undefined, optionalParams: Set<string>, byMutation: Map<string, Trial>): Trial | undefined {
+  if (t.mutationId === 'baseline') return undefined;
+  if (t.paramName && optionalParams.has(t.paramName) && t.mutationType !== 'optional_present') {
+    return byMutation.get(`optional_present:${t.paramName}`) ?? base;
+  }
+  return base;
 }
 
 function queryDiff(t: Trial, base?: Trial): string {

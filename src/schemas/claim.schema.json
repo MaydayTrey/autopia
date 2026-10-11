@@ -19,7 +19,8 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["required", "type", "auth", "pagination", "error_behavior", "undocumented", "other"]
+      "enum": ["required", "type", "auth", "pagination", "error_behavior", "undocumented_constraint", "undocumented", "other"],
+      "description": "undocumented_constraint = a rule the API enforces that the spec never states (parameters that must be sent together, implicit defaults, orderings). It is NOT a contradiction of the spec; keep diverges_from_spec=false for it."
     },
     "param": {
       "type": ["string", "null"],

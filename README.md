@@ -29,7 +29,13 @@ discover -> exercise -> aggregate -> cross-ref -> verify -> write (+ diff)
   normalized response **signature** (status, body kind, JSON shape, error message), never
   raw bytes, so live data can change without breaking reproduction. Non-reproducing claims
   are discarded. Stored claims are always `verified = true`.
-- **Divergences** are claims that contradict the spec. The money view.
+- **Divergences** are claims that contradict a documented fact (required flag, type, enum,
+  range). The money view. Silence in the spec is never a divergence: a rule the API enforces
+  that the spec never states (parameters that must be sent together, implicit defaults) is
+  stored under its own kind, `undocumented_constraint`, so the strict flag stays
+  machine-checkable and the softer findings stay queryable.
+- **Claim kinds:** `required`, `type`, `auth`, `pagination`, `error_behavior`,
+  `undocumented_constraint`, `undocumented`, `other`.
 - **Diffs** compare claim sets across tool versions by stable `claim_key`.
 
 ## Quick start
