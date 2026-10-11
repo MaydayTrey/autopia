@@ -156,6 +156,27 @@ BATTERY 1.2.0 (2026-10-11): PATH PARAMS + SCHEME-TARGETED AUTH
     declared but not enforced. Probing the wrong header told us about
     our probe, not the API. Lesson: read the security block.
 
+REPRODUCTION ON LIVE FEEDS (2026-10-11, commits ef42d76 + next)
+  NWS /alerts/active is a live feed: which alert is first, and which
+  optional keys that alert carries, change minute to minute. Runs
+  #12/#13 rejected 24/18 TRUE claims on that endpoint because the
+  stored and fresh signatures differed inside features[0]. The gate
+  was doing its job; the signature was too literal. Three changes:
+  1. signaturesEqual compares shapes for COMPATIBILITY: 'null' matches
+     any value, an empty array matches any array; key sets and types
+     must still match. (signature.ts shapesCompatible)
+  2. shapeOf summarizes objects that are ARRAY ELEMENTS as opaque
+     'object'. Top-level structure and nested objects outside arrays
+     remain exact. Arrays of primitives/arrays keep element shape.
+  3. verify retries a mismatching trial exactly once, against the
+     stored signature (no loosening). 500s are not retried by the
+     executor (only 429/503), so tests count verify's attempts.
+  Also fixed: Node fetch injects 'user-agent: node' when the header is
+  absent, so the no_auth probe for User-Agent now sends an explicit
+  empty value (NWS returns 403 for both empty and missing).
+  scripts/inspect-repro.ts <ids> re-executes stored trials and prints
+  stored vs fresh signatures: use it whenever a claim is rejected.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

@@ -23,8 +23,13 @@ test('signatures tolerate nullable fields and empty arrays, but not missing keys
   assert.ok(signaturesEqual(sig({ features: [{ geometry: { type: 'Point' }, ends: '2026-01-01' }] }), sig({ features: [{ geometry: null, ends: null }] })));
   // empty list vs populated list
   assert.ok(signaturesEqual(sig({ features: [] }), sig({ features: [{ id: 'x' }] })));
-  // a key disappearing is a real change
-  assert.ok(!signaturesEqual(sig({ features: [{ id: 'x', extra: 1 }] }), sig({ features: [{ id: 'x' }] })));
+  // a key disappearing from a (non-array) object is a real change
+  assert.ok(!signaturesEqual(sig({ meta: { id: 'x', extra: 1 } }), sig({ meta: { id: 'x' } })));
+  // objects that are array ELEMENTS are opaque: which record comes first is live data, not contract
+  assert.deepEqual(shapeOf({ features: [{ id: 'x', extra: 1 }] }), { features: ['array', 'object'] });
+  assert.ok(signaturesEqual(sig({ features: [{ id: 'x', extra: 1 }] }), sig({ features: [{ id: 'y' }] })));
+  // arrays of primitives and arrays of arrays keep their element shape
+  assert.deepEqual(shapeOf({ coords: [[1, 2], [3, 4]], tags: ['a'] }), { coords: ['array', ['array', 'number']], tags: ['array', 'string'] });
   // a type change is a real change
   assert.ok(!signaturesEqual(sig({ total: 1 }), sig({ total: '1' })));
   // status and error message still must match exactly

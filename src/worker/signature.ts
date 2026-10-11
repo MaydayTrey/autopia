@@ -26,13 +26,21 @@ export interface ResponseSignature {
 
 const MAX_DEPTH = 4;
 
-export function shapeOf(v: unknown, depth = 0): unknown {
+/**
+ * Objects that are ELEMENTS of an array are summarized as the opaque 'object'.
+ * Array elements are the part of a live feed that changes between calls (which
+ * alert is first, which optional keys that record carries), while the
+ * top-level structure and any nested objects outside arrays are the API's
+ * stable contract. Arrays of primitives and arrays of arrays keep their shape.
+ */
+export function shapeOf(v: unknown, depth = 0, inArray = false): unknown {
   if (depth > MAX_DEPTH) return '…';
   if (v === null) return 'null';
-  if (Array.isArray(v)) return v.length === 0 ? ['array', 'empty'] : ['array', shapeOf(v[0], depth + 1)];
+  if (Array.isArray(v)) return v.length === 0 ? ['array', 'empty'] : ['array', shapeOf(v[0], depth + 1, true)];
   if (typeof v === 'object') {
+    if (inArray) return 'object';
     const out: Record<string, unknown> = {};
-    for (const k of Object.keys(v as object).sort()) out[k] = shapeOf((v as Record<string, unknown>)[k], depth + 1);
+    for (const k of Object.keys(v as object).sort()) out[k] = shapeOf((v as Record<string, unknown>)[k], depth + 1, false);
     return out;
   }
   return typeof v; // 'string' | 'number' | 'boolean'
