@@ -13,6 +13,26 @@ import type { LlmAdapter, LlmRequest, LlmResponse } from './adapter.js';
 
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 
+/**
+ * The structured-output grammar accepts a subset of JSON Schema: structure
+ * and enums, but not numeric/length/pattern constraints. Strip those for the
+ * request; ajv still enforces the full schema locally before anything is kept.
+ */
+const UNSUPPORTED_KEYWORDS = new Set(['minItems', 'maxItems', 'minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'format', '$schema', 'title']);
+
+export function relaxSchemaForApi<T>(schema: T): T {
+  if (Array.isArray(schema)) return schema.map((s) => relaxSchemaForApi(s)) as T;
+  if (schema && typeof schema === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+      if (UNSUPPORTED_KEYWORDS.has(k)) continue;
+      out[k] = relaxSchemaForApi(v);
+    }
+    return out as T;
+  }
+  return schema;
+}
+
 export class AnthropicAdapter implements LlmAdapter {
   readonly name: string;
   private readonly client: Anthropic;
@@ -31,7 +51,7 @@ export class AnthropicAdapter implements LlmAdapter {
       system: req.system,
       messages: [{ role: 'user', content: req.user }],
       thinking: { type: 'adaptive' },
-      output_config: { format: { type: 'json_schema', schema: req.jsonSchema } },
+      output_config: { format: { type: 'json_schema', schema: relaxSchemaForApi(req.jsonSchema) } },
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
     });

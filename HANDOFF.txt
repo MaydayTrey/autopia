@@ -23,10 +23,20 @@ STATUS (all green as of this update)
   [x] 7. WRITE + DIFF: write.ts + diff.ts, CLI, three live runs done
   [x] 8. MCP server (M5), exercised end-to-end by tests/integration/mcp.test.ts
   [x] 9. Dashboard (M6, minimal), README, this HANDOFF
-  Tests: 48 passing (37 unit + 11 integration). `npm test`.
+  Tests: 50 passing (39 unit + 11 integration). `npm test`.
   Typecheck: clean. `npm run typecheck`.
-  NOT yet done: git commit (do it; nothing is committed yet),
-  LLM pass has NOT been run live (no API key on this machine).
+  Committed: yes (first commit ba00be4; later commits follow).
+  LLM PASS HAS RUN LIVE (run #5, 2026-10-11): Trey's key is in .env
+  (gitignored; NEVER commit it, never print it). claude-opus-5-5
+  returned 16 claims, 0 discarded by ajv, all 16 reproduced.
+  Tokens 19,336 in / 2,979 out (~14 cents). Notable LLM finds:
+  apikey param -> HTTP 303 redirect with empty body; forecast_days
+  range errors always say "Given 16."; start_date/end_date must be
+  sent together (either alone -> 400 "Bad Request").
+  Fix made for the live run: the API's structured-output grammar
+  rejects minItems/maxItems/minLength/maxLength/minimum/maximum/
+  pattern/format; src/llm/anthropic.ts relaxSchemaForApi() strips
+  them for the request, ajv still enforces the full schema locally.
 
 SUCCESS CRITERIA (spec section 12) - current evidence
   1. True divergence on a known API: YES. Open-Meteo spec says
