@@ -25,7 +25,7 @@ export async function discover(db: Db, target: TargetConfig): Promise<DiscoverRe
   log.info('discover', `fetching spec ${target.spec_url}`);
   const text = await fetchSpecText(target.spec_url);
   const doc = parseSpecText(text);
-  const parsed = extractEndpoints(doc, { server: target.server }); // throws SpecError if out of scope
+  const parsed = extractEndpoints(doc, { server: target.server, overrideServer: target.override_server }); // throws SpecError if out of scope
   const specHash = hashSpec(doc);
   log.info('discover', `spec "${parsed.title}" v${parsed.version}: ${parsed.endpoints.length} GET endpoint(s), hash ${specHash.slice(0, 12)}`);
 

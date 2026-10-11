@@ -55,6 +55,9 @@ async function openPostgres(url: string) {
   // Fail fast: without a connect timeout a hung route (e.g. IPv6 with no egress) blocks forever,
   // which is how a health check turns into a deploy timeout.
   const pool = new pg.Pool({ connectionString: url, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000, max: 5 });
+  // An idle client dropped by the server (managed Postgres does this) emits 'error' on the pool.
+  // Unhandled, that event crashes the process mid-run; handled, the pool simply replaces the client.
+  pool.on('error', (e) => process.stderr.write(`warn: idle database connection dropped (${e.message}); pool will reconnect\n`));
   await pool.query('CREATE EXTENSION IF NOT EXISTS vector;');
   const db = drizzle(pool, { schema });
   await migrate(db, { migrationsFolder: MIGRATIONS });

@@ -77,7 +77,7 @@ async function main() {
     }
     case 'plan': {
       const target = await loadTarget(need(args[0], 'target file'));
-      const parsed = extractEndpoints(parseSpecText(await fetchSpecText(target.spec_url)), { server: target.server });
+      const parsed = extractEndpoints(parseSpecText(await fetchSpecText(target.spec_url)), { server: target.server, overrideServer: target.override_server });
       const plan = planAll(selectEndpoints(parsed.endpoints, target), target, target.max_trials ?? 500);
       out(`${parsed.title} v${parsed.version}: ${parsed.endpoints.length} endpoint(s), ${plan.length} trials`);
       for (const t of plan) out(`${t.endpoint}  ${t.id.padEnd(36)} ${t.input.method} ${buildUrl(t.input).slice(0, 150)}`);

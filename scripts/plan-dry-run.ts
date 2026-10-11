@@ -4,7 +4,7 @@ import { planAll } from '../src/worker/exercise.js';
 import { buildUrl } from '../src/worker/http.js';
 const target = await loadTarget(process.argv[2] ?? 'targets/open-meteo-forecast.json');
 const doc = parseSpecText(await fetchSpecText(target.spec_url));
-const all = extractEndpoints(doc, { server: target.server });
+const all = extractEndpoints(doc, { server: target.server, overrideServer: target.override_server });
 const parsed = { ...all, endpoints: selectEndpoints(all.endpoints, target) };
 console.log('title:', parsed.title, 'version:', parsed.version, 'hash:', hashSpec(doc).slice(0, 12));
 for (const ep of parsed.endpoints) {

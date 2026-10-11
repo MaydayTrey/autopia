@@ -19,8 +19,10 @@ export interface TargetConfig {
   max_trials?: number;
   /** Only exercise these spec paths (exact match). Omit to exercise every GET endpoint. */
   include_paths?: string[];
-  /** Base URL to use when the spec declares no absolute server (or to override it). */
+  /** Base URL to use when the spec declares no absolute server; with override_server it replaces the declared one. */
   server?: string;
+  /** Replace the spec's declared server with `server` (e.g. a regional mirror that serves the same API). */
+  override_server?: boolean;
 }
 
 /** Apply include_paths; errors if a listed path is not in the spec (typo guard). */
@@ -57,5 +59,6 @@ export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {
     max_trials: raw.max_trials ?? 500,
     include_paths: Array.isArray(raw.include_paths) ? raw.include_paths.map(String) : undefined,
     server: typeof raw.server === 'string' && /^https?:\/\//i.test(raw.server) ? raw.server.replace(/\/+$/, '') : undefined,
+    override_server: raw.override_server === true,
   };
 }

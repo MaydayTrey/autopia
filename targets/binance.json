@@ -1,5 +1,7 @@
 {
-  "name": "binance-spot-public",
+  "name": "binance-us-spot-public",
+  "server": "https://api.binance.us",
+  "override_server": true,
   "category": "finance",
   "spec_url": "https://raw.githubusercontent.com/binance/binance-api-swagger/master/spot_api.yaml",
   "include_paths": [
