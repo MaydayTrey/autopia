@@ -33,6 +33,11 @@ STATUS (all green as of this update)
   apikey param -> HTTP 303 redirect with empty body; forecast_days
   range errors always say "Given 16."; start_date/end_date must be
   sent together (either alone -> 400 "Bad Request").
+  Run #6 (after the undocumented_constraint kind + comparison-trial
+  prompt rule, commit cb7f1f7): 10 LLM claims, 0 discarded, all
+  reproduced; every claim now cites its comparison trial; the
+  start_date/end_date coupling landed as undocumented_constraint.
+  Tokens 20,237 in / 2,581 out.
   Fix made for the live run: the API's structured-output grammar
   rejects minItems/maxItems/minLength/maxLength/minimum/maximum/
   pattern/format; src/llm/anthropic.ts relaxSchemaForApi() strips
