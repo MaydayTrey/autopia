@@ -119,6 +119,21 @@ SECOND TARGET + SIBLING COMPARISON (2026-10-11, commit a1438a1)
   says the real past_days limit is 5031. A 'boundary_far_above_max'
   probe (e.g. max*10) would catch large undocumented ranges.
 
+THIRD TARGET: National Weather Service (targets/nws.json, commit 9f7c0bb)
+  Different vendor, 69-endpoint OpenAPI 3.1.2 spec; we exercise 6
+  paths via the new include_paths target option. Parser handled
+  'd parameters, comma-joined path params ({x},{y}), a header
+  param, and the security block with no changes.
+  Run #10: 132 trials -> 114 verified, 0 rejected, 0 spec
+  divergences, 6 SIBLING divergences: NWS rejects unknown query
+  params with 400 on every endpoint; both Open-Meteo APIs ignore
+  them. First real cross-vendor finding. Also: NWS accepts an invalid
+  Authorization header (key not enforced), cursor params reject any
+  arbitrary value, error bodies are RFC-7807-style problem+json.
+  Limitation seen: NWS required params are all PATH params, which the
+  battery does not mutate in v1, so no required_omitted claims there.
+  Battery v1.1.0 adds boundary_far_above_max (10x documented max).
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

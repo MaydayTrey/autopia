@@ -63,8 +63,8 @@ async function main() {
       if (s.diff) out(`  diff vs version #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}`);
       for (const r of s.rejected) out(`  rejected: ${r.reason}  <- ${r.claim.statement}`);
       out('');
-      for (const c of s.verified.filter((c) => c.divergenceType === 'spec')) out(`  !! SPEC DIVERGENCE [${c.kind}] ${c.statement}  (spec: ${c.specSays ?? '-'})  evidence ${c.evidenceTrialIds.join(',')}`);
-      for (const c of s.verified.filter((c) => c.siblingNote)) out(`  ~~ SIBLING DIFFERS [${c.kind}] ${c.statement}  (${c.siblingNote})  evidence ${c.evidenceTrialIds.join(',')}`);
+      for (const c of s.verified.filter((c) => c.divergenceType === 'spec')) out(`  !! SPEC DIVERGENCE [${c.kind}] ${c.endpoint} :: ${c.statement}  (spec: ${c.specSays ?? '-'})  evidence ${c.evidenceTrialIds.join(',')}`);
+      for (const c of s.verified.filter((c) => c.siblingNote)) out(`  ~~ SIBLING DIFFERS [${c.kind}] ${c.endpoint} :: ${c.statement}  (${c.siblingNote})  evidence ${c.evidenceTrialIds.join(',')}`);
       break;
     }
     case 'plan': {
