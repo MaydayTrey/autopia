@@ -276,6 +276,16 @@ HOSTING PREP (2026-10-12): everything except the two account steps
   GitHub, so the repo needs a remote: Trey creates the GitHub repo,
   says the literal word 'push', then connects it in Render (New ->
   Blueprint), pastes DATABASE_URL, copies the generated token. Free
+  LIVE 2026-10-12: https://autopia-mcp.onrender.com (Render free,
+  auto-deploys from main). /healthz -> {ok:true, db:'ok'}; POST /mcp
+  needs Authorization: Bearer <AUTOPIA_MCP_TOKEN from the Render
+  Environment tab>; anonymous -> 401, GET -> 405. First deploy timed
+  out (health check blocked on a pg connect with no timeout; tsx
+  fetched by npx at boot) -> fixed in 0801d40. Second cause of 'db
+  error: ENOTFOUND base': the DATABASE_URL value was pasted WITH
+  quotes in Render; bare string fixed it. GitHub Actions run-all ran
+  green against Neon (runs #23-#27, 0 failed, 0 rejected): the
+  nightly refresh is live. Free Render
   services sleep after ~15 min idle (slow first call). Fly config
   stays in the repo for when it is worth paying for always-on.
   Trey must do (needs his accounts; agents must NOT create accounts
