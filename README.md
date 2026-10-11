@@ -36,6 +36,10 @@ discover -> exercise -> aggregate -> cross-ref -> verify -> write (+ diff)
   machine-checkable and the softer findings stay queryable.
 - **Claim kinds:** `required`, `type`, `auth`, `pagination`, `error_behavior`,
   `undocumented_constraint`, `undocumented`, `other`.
+- **Sibling comparison.** Tools that share a `category` are compared probe by probe: the
+  same rule on the same parameter name with the opposite verdict (one accepts, one rejects)
+  marks the claim `divergence_type = sibling` with a note naming the other tool. Only rules
+  claims take part; LLM claims are too free-form to line up across tools.
 - **Diffs** compare claim sets across tool versions by stable `claim_key`.
 
 ## Quick start

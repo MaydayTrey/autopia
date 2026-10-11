@@ -100,6 +100,25 @@ DECISIONS MADE (with Trey's approval, 2026-10-11)
   - Confidence is derived from evidence count, not model-reported.
   - "Insufficient evidence" = no claim (not a claim kind).
 
+SECOND TARGET + SIBLING COMPARISON (2026-10-11, commit a1438a1)
+  targets/open-meteo-air-quality.json (same category "weather").
+  Run #7 (first run, no siblings): 67 trials -> 56 verified, 0
+  rejected, same two spec divergences as forecast (past_days 92 vs
+  93; no-params -> 200 empty). Battery generalized with no changes.
+  Run #8 (with sibling comparison vs forecast's 96 claim keys):
+  61 verified, 0 sibling disagreements (same vendor codebase, so
+  expected), plus a third spec divergence found by the LLM: the
+  past_days error text says allowed range 0..5031 vs documented 92.
+  Sibling mechanics: siblingKey() in claims.ts = rule + param minus
+  endpoint; siblingClaims() in queries.ts loads other tools' current
+  claims in the category; tagAgainstSiblings() in crossref.ts flags
+  accepts-vs-rejects on the same probe -> divergence_type 'sibling'
+  (spec wins if both) + sibling_note column. LLM claims are not
+  compared across tools (their keys embed probe sets).
+  Open idea: the battery only probes max+1; air-quality's error
+  says the real past_days limit is 5031. A 'boundary_far_above_max'
+  probe (e.g. max*10) would catch large undocumented ranges.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,
