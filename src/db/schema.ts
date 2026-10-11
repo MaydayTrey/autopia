@@ -170,6 +170,32 @@ export const apiCalls = pgTable(
   (t) => [index('api_calls_key_time_idx').on(t.keyId, t.createdAt)],
 );
 
+/**
+ * TARGET REQUESTS: targets submitted by keyed users over MCP. Validated for
+ * scope on submission (OpenAPI 3, keyless, public host), then processed
+ * rules-only by the worker's next pass. Once 'done', the stored target is
+ * run on every subsequent pass like a file target.
+ */
+export const targetRequests = pgTable(
+  'target_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    keyId: bigint('key_id', { mode: 'number' }).references(() => apiKeys.id), // null = admin token
+    name: text('name').notNull(), // tool name (unique across requests + file targets)
+    specUrl: text('spec_url').notNull(),
+    target: jsonb('target').notNull(), // the validated TargetConfig
+    status: text('status').notNull().default('pending'), // pending | running | done | failed | rejected
+    note: text('note'), // validation summary, error, or reason
+    testRunId: bigint('test_run_id', { mode: 'number' }).references(() => testRuns.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [index('target_requests_status_idx').on(t.status), uniqueIndex('target_requests_name_idx').on(t.name)],
+);
+
+export type TargetRequest = typeof targetRequests.$inferSelect;
+
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type ApiCall = typeof apiCalls.$inferSelect;
 

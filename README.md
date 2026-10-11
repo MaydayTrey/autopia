@@ -103,6 +103,26 @@ and only one process can open it at a time. Stop the worker before starting the 
 or dashboard. Set `DATABASE_URL` to a real Postgres to lift that limit (same schema, no code
 change).
 
+## User-requested targets
+
+Anyone with a key can ask the compendium to test an API it does not have yet, from inside
+their agent, with the `request_target` MCP tool. The request is validated on the spot: the
+spec is fetched and parsed, the battery is planned, and the user gets back how many endpoints
+and trials it will take. Scope is enforced at submission, not by review:
+
+- public http(s) hosts only, for the spec and for every server it names (no localhost,
+  private ranges, IP literals, or `.internal`-style names: the worker must never become a
+  proxy into wherever it runs)
+- keyless: targets with headers are refused; credentials are the contributor tier's job
+- politeness we control: concurrency 1, at least 300ms between calls, at most 300 trials
+- a free tool name, and a quota of 3 requests per key per day
+
+Pending requests are processed rules-only (no model cost) at the start of the next `run-all`
+pass, or by hand with `npm run autopia -- requests process`. Once done, the stored target
+joins every later pass like a file target, and the weekly LLM pass covers it.
+`get_request_status` reports pending / running / done / failed with the run id;
+`npm run autopia -- requests list` shows them all.
+
 ## Hosting: managed Postgres + the HTTP MCP server
 
 The embedded database is for one laptop. A hosted compendium uses a managed Postgres so the

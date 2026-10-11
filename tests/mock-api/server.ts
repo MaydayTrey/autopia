@@ -26,6 +26,8 @@ export type Profile = 'v1' | 'v2';
 export interface MockApi {
   url: string;
   specPath: string;
+  /** The same spec served over HTTP (for request-target tests). */
+  specUrl: string;
   profile: Profile;
   requests: { method: string; url: string }[];
   close: () => Promise<void>;
@@ -63,8 +65,13 @@ function spec(serverUrl: string, version: string) {
 
 const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'api_key']);
 
-function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse) {
+function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string) {
   const u = new URL(req.url ?? '/', 'http://x');
+  if (u.pathname === '/openapi.json') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(specJson());
+    return;
+  }
   const err = (code: string, message: string, status = 400) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: { code, message } }));
@@ -116,9 +123,10 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
 
 export async function startMockApi(profile: Profile): Promise<MockApi> {
   const requests: MockApi['requests'] = [];
+  let specText = '';
   const server = http.createServer((req, res) => {
     requests.push({ method: req.method ?? '', url: req.url ?? '' });
-    handle(profile, req, res);
+    handle(profile, req, res, () => specText);
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
@@ -126,10 +134,12 @@ export async function startMockApi(profile: Profile): Promise<MockApi> {
   const url = `http://127.0.0.1:${addr.port}`;
   const dir = await mkdtemp(path.join(os.tmpdir(), 'autopia-mock-'));
   const specPath = path.join(dir, `spec-${profile}.json`);
-  await writeFile(specPath, JSON.stringify(spec(url, profile === 'v1' ? '1.0' : '2.0'), null, 2));
+  specText = JSON.stringify(spec(url, profile === 'v1' ? '1.0' : '2.0'), null, 2);
+  await writeFile(specPath, specText);
   return {
     url,
     specPath,
+    specUrl: url + '/openapi.json',
     profile,
     requests,
     close: () => new Promise<void>((r) => server.close(() => r())),

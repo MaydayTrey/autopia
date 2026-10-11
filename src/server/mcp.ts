@@ -24,6 +24,7 @@ import { closeDb, getDb } from '../db/client.js';
 import { listTools, listVersions, resolveTool, searchClaims, toolKnowledge, versionDiff } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { logCall, verifyKey } from '../db/keys.js';
+import { getRequest, submitRequest } from '../db/requests.js';
 import { loadEnv } from '../worker/env.js';
 import { log } from '../worker/log.js';
 
@@ -37,11 +38,13 @@ export interface ServerContext {
   keyId: number | null;
   /** When false (stdio), calls are not logged. */
   logCalls: boolean;
+  /** How the caller was identified. Submitting targets requires 'key' or 'admin'. */
+  identity: 'key' | 'admin' | 'open' | 'stdio';
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
-export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false }): McpServer {
+export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false, identity: 'stdio' }): McpServer {
   const server = new McpServer({ name: 'autopia', version: '0.1.0' });
 
   /** Registers a tool with call logging (who, what, ok, ms) around the handler. */
@@ -115,6 +118,35 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false 
     },
   );
 
+  tool<{ target: Record<string, unknown> }>(
+    'request_target',
+    {
+      title: 'Request a target',
+      description:
+        'Ask the compendium to test an API that is not in it yet. Pass a target object: { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. Scope: public read-only APIs with no credentials (no headers accepted). The request is validated now (spec fetched and parsed, battery planned) and processed rules-only on the worker\'s next pass; use get_request_status with the returned id. Requires a per-user key. Quota: 3 requests per key per day.',
+      inputSchema: { target: z.record(z.unknown()).describe('the target definition; see targets/*.json in the repo for examples') },
+    },
+    async ({ target }) => {
+      if (ctx.identity !== 'key' && ctx.identity !== 'admin') return fail('request_target needs a per-user key (Authorization: Bearer ak_...)');
+      try {
+        const r = await submitRequest(await getDb(), ctx.keyId, target);
+        return text({ request_id: r.request.id, status: r.request.status, name: r.request.name, inspection: r.inspection, note: 'Pending. The worker processes requests on its next pass (nightly); check get_request_status.' });
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    },
+  );
+
+  tool<{ request_id: number }>(
+    'get_request_status',
+    { title: 'Get request status', description: 'Status of a target request: pending | running | done | failed, with the run id and summary once processed.', inputSchema: { request_id: z.number().int() } },
+    async ({ request_id }) => {
+      const r = await getRequest(await getDb(), request_id);
+      if (!r) return fail(`no such request: ${request_id}`);
+      return text({ id: r.id, name: r.name, spec_url: r.specUrl, status: r.status, note: r.note, test_run_id: r.testRunId, created_at: r.createdAt, finished_at: r.finishedAt, next: r.status === 'done' ? `get_tool_docs with tool "${r.name}"` : null });
+    },
+  );
+
   return server;
 }
 
@@ -165,16 +197,16 @@ async function main() {
     // Identity: per-user key, admin token, or (explicitly) open.
     const auth = req.headers.authorization ?? '';
     const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-    let ctx: ServerContext = { keyId: null, logCalls: true };
+    let ctx: ServerContext = { keyId: null, logCalls: true, identity: 'open' };
     if (presented.startsWith('ak_')) {
       const v = await verifyKey(await getDb(), presented).catch((e: Error) => ({ ok: false as const, status: 401 as const, reason: `key check failed: ${e.message}` }));
       if (!v.ok) {
         res.status(v.status).json({ error: v.reason });
         return;
       }
-      ctx = { keyId: v.key.id, logCalls: true };
+      ctx = { keyId: v.key.id, logCalls: true, identity: 'key' };
     } else if (adminToken && presented === adminToken) {
-      ctx = { keyId: null, logCalls: true };
+      ctx = { keyId: null, logCalls: true, identity: 'admin' };
     } else if (!openEndpoint) {
       res.status(401).json({ error: 'unauthorized' });
       return;

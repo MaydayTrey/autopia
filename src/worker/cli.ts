@@ -32,6 +32,9 @@ import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
 import { pruneRuns } from '../db/retention.js';
 import { createKey, listKeys, revokeKey, usageSummary } from '../db/keys.js';
+import { acceptedTargets, listRequests } from '../db/requests.js';
+import { processPendingRequests } from './requests-runner.js';
+import type { TargetConfig } from './target.js';
 
 loadEnv();
 
@@ -181,9 +184,20 @@ async function main() {
       const db = await getDb();
       const rows: string[] = [];
       let failed = 0;
-      for (const f of files) {
+      // 1. user-requested targets waiting to be processed (rules-only unless --llm was given)
+      for (const r of await processPendingRequests(db, { llm, reproduce: values.reproduce })) {
+        if (r.status === 'failed') failed++;
+        rows.push(`${r.name.padEnd(26)} request #${String(r.id).padEnd(3)} ${r.status.toUpperCase().padEnd(12)} ${r.note}`);
+      }
+      // 2. file targets, then previously accepted user targets, as one list
+      const sources: { label: string; load: () => Promise<TargetConfig> }[] = [
+        ...files.map((f) => ({ label: f, load: () => loadTarget(path.join(dir, f)) })),
+        ...(await acceptedTargets(db)).map((t) => ({ label: `${t.name} (requested)`, load: async () => t })),
+      ];
+      for (const src of sources) {
+        const f = src.label;
         try {
-          const target = await loadTarget(path.join(dir, f));
+          const target = await src.load();
           const s = await runPipeline(db, target, { llm, reproduce: values.reproduce });
           const diff = s.diff ? `  diff vs #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}` : '';
           rows.push(`${s.toolName.padEnd(26)} run #${String(s.testRunId).padEnd(4)} ${s.isNewVersion ? 'NEW VERSION ' : 'same version'}  trials ${String(s.trials).padStart(4)}  verified ${String(s.verified.length).padStart(4)}  rejected ${String(s.rejected.length).padStart(3)}  divergences ${String(s.divergences).padStart(3)}${diff}`);
@@ -194,13 +208,29 @@ async function main() {
         }
       }
       out('');
-      out(`RUN-ALL ${new Date().toISOString()}  ${files.length} target(s), ${failed} failed`);
+      out(`RUN-ALL ${new Date().toISOString()}  ${sources.length} target(s) (${files.length} files + ${sources.length - files.length} requested), ${failed} failed`);
       for (const r of rows) out('  ' + r);
       if (values['prune-days']) {
         const p = await pruneRuns(db, { keepDays: Number(values['prune-days']), dryRun: values['dry-run'] });
         out(`  prune (keep ${values['prune-days']} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
       }
       if (failed) process.exitCode = 1;
+      break;
+    }
+    case 'requests': {
+      // requests list | requests process [--llm]
+      const db = await getDb();
+      const sub = args[0] ?? 'list';
+      if (sub === 'list') {
+        for (const r of await listRequests(db)) out(`#${r.id} ${r.name.padEnd(24)} ${r.status.padEnd(8)} key ${r.keyId ?? 'admin'}  ${r.specUrl}  ${r.note ?? ''}`);
+      } else if (sub === 'process') {
+        const llm = values.llm ? adapterFromEnv() : null;
+        const done = await processPendingRequests(db, { llm, reproduce: values.reproduce });
+        for (const r of done) out(`#${r.id} ${r.name}: ${r.status} ${r.note}`);
+        if (!done.length) out('no pending requests');
+      } else {
+        throw new Error('usage: requests list | requests process [--llm]');
+      }
       break;
     }
     case 'keys': {
