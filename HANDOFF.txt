@@ -3,7 +3,11 @@ AUTOPIA - HANDOFF FOR THE NEXT AGENT
 Read this first. Updated: 2026-10-11 (MVP COMPLETE: M0-M6 built and tested)
 ====================================================================
 
-OWNER: Trey. Beginner developer, learning
+OWNER: Trey. GitHub: MaydayTrey/autopia (private).
+  Commit with the repo-local git identity (MaydayTrey@users.noreply.
+  github.com, already set in .git/config): GitHub blocks pushes that
+  expose the Gmail address. First push 2026-10-12 after rewriting all
+  commit emails. Beginner developer, learning
 via Full Stack Open. Explain decisions; don't just dump code.
 Never push to a remote without the literal word "push" from Trey.
 
