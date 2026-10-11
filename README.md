@@ -52,8 +52,16 @@ npm run autopia -- search "is latitude required"
 npm test
 ```
 
-To enable the LLM pass, copy `.env.example` to `.env` and set `ANTHROPIC_API_KEY`.
-Without a key the pipeline runs rules-only and says so.
+Configuration lives in a local `.env` file (gitignored), read on startup:
+
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | enables the LLM pass; without it the pipeline runs rules-only and says so |
+| `AUTOPIA_MODEL` | model for the LLM pass, default `claude-opus-5-5` |
+| `DATABASE_URL` | Postgres connection string; unset = embedded PGlite in `./data/pglite` |
+| `AUTOPIA_MCP_TOKEN` | admin token for the HTTP MCP server (per-user keys work without it) |
+| `AUTOPIA_MCP_PORT` | HTTP server port, default 4200 |
+| `AUTOPIA_LOG` | `debug` for per-trial logs |
 
 ### Serving the compendium
 
