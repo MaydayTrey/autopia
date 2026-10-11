@@ -61,7 +61,8 @@ before(async () => {
 
   port = await freePort();
   child = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server', 'mcp.ts'), '--http', String(port)], {
-    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error' },
+    // DATABASE_URL: '' pins the child to its throwaway PGlite even when .env points at a real Postgres.
+    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', DATABASE_URL: '' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   await waitFor(`http://127.0.0.1:${port}/healthz`, 30_000);
@@ -79,7 +80,8 @@ after(async () => {
 
 test('mcp over http: healthz, tool list, and a real query', async () => {
   const h = await fetch(`http://127.0.0.1:${port}/healthz`).then((r) => r.json());
-  assert.deepEqual(h, { ok: true });
+  assert.equal(h.ok, true);
+  assert.equal(h.db, 'ok');
   const { tools } = await mcp.listTools();
   assert.ok(tools.some((t) => t.name === 'get_tool_docs'));
   const res = await mcp.callTool({ name: 'get_divergences', arguments: { tool: 'mock-items' } });

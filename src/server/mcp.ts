@@ -137,17 +137,21 @@ async function main() {
   }
 
   const port = Number(process.argv[httpIdx + 1] ?? process.env.AUTOPIA_MCP_PORT ?? 4200);
+  // Prefer IPv4 for outbound connections: some hosts resolve AAAA records but have no IPv6
+  // egress, and a connect attempt there hangs instead of failing.
+  (await import('node:dns')).setDefaultResultOrder('ipv4first');
   const { default: express } = await import('express');
   const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+  // Liveness: answers within 5s no matter what the database is doing, so a platform health
+  // check never hangs. The body reports db state; 200 means "process is up and serving".
   app.get('/healthz', async (_req, res) => {
-    try {
-      await getDb();
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ ok: false, error: (e as Error).message });
-    }
+    const db = await Promise.race([
+      getDb().then(() => 'ok' as const, (e: Error) => `error: ${e.message}`),
+      new Promise<string>((r) => setTimeout(() => r('pending'), 5_000)),
+    ]);
+    res.json({ ok: true, db });
   });
   // Optional bearer-token guard. Set AUTOPIA_MCP_TOKEN on a public deployment; unset = open.
   const token = process.env.AUTOPIA_MCP_TOKEN?.trim();

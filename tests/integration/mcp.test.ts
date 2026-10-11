@@ -46,7 +46,7 @@ before(async () => {
   transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server', 'mcp.ts')],
-    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error' } as Record<string, string>,
+    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', DATABASE_URL: '' } as Record<string, string>, // '' pins the child to PGlite even when .env has a real Postgres
     stderr: 'pipe',
   });
   mcp = new Client({ name: 'autopia-test-client', version: '0.0.0' });

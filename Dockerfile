@@ -5,8 +5,8 @@ FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-# tsx is a devDependency but runs the app; keep dev deps in the image (small, no build step).
-RUN npm ci --ignore-scripts
+# tsx is a devDependency but runs the app, so dev deps are installed explicitly (NODE_ENV=production would skip them).
+RUN npm ci --ignore-scripts --include=dev
 COPY tsconfig.json drizzle.config.ts ./
 COPY drizzle ./drizzle
 COPY src ./src

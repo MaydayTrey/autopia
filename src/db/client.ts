@@ -52,7 +52,9 @@ async function openPostgres(url: string) {
   const { drizzle } = await import('drizzle-orm/node-postgres');
   const { migrate } = await import('drizzle-orm/node-postgres/migrator');
 
-  const pool = new pg.Pool({ connectionString: url });
+  // Fail fast: without a connect timeout a hung route (e.g. IPv6 with no egress) blocks forever,
+  // which is how a health check turns into a deploy timeout.
+  const pool = new pg.Pool({ connectionString: url, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000, max: 5 });
   await pool.query('CREATE EXTENSION IF NOT EXISTS vector;');
   const db = drizzle(pool, { schema });
   await migrate(db, { migrationsFolder: MIGRATIONS });
