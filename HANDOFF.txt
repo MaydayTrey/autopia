@@ -266,7 +266,14 @@ HOSTING PREP (2026-10-12): everything except the two account steps
   PostgreSQL 18.x on neondb. All local commands now hit Neon; the
   PGlite copy in data/pglite is a stale local snapshot. The code uses
   the DIRECT url (migrations need it); the pooled url is unused.
-  Remaining for Trey: Fly.io steps below.
+  Hosting decision 2026-10-12: RENDER free tier instead of Fly (Fly
+  needs a card). render.yaml Blueprint + .github/workflows/run-all.yml
+  (nightly refresh, free) + test.yml (CI). Render deploys from
+  GitHub, so the repo needs a remote: Trey creates the GitHub repo,
+  says the literal word 'push', then connects it in Render (New ->
+  Blueprint), pastes DATABASE_URL, copies the generated token. Free
+  services sleep after ~15 min idle (slow first call). Fly config
+  stays in the repo for when it is worth paying for always-on.
   Trey must do (needs his accounts; agents must NOT create accounts
   or enter credentials): (1) create a Neon (or Supabase) project and
   put DATABASE_URL in .env, then 'npm run db:import -- data/export.json';

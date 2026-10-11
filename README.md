@@ -115,13 +115,13 @@ Import preserves ids, skips rows that already exist, and resets the sequences, s
 to re-run. Put the same `DATABASE_URL` in `.env` and every command on the laptop now talks to
 the hosted database.
 
-**2a. Server on Render (free tier, no card).**  is a Blueprint. Push the repo to
+**2a. Server on Render (free tier, no card).** `render.yaml` is a Blueprint. Push the repo to
 GitHub, then in Render: New -> Blueprint -> select the repo. It builds the Dockerfile, asks for
- (paste the Neon direct string) and generates  (copy it from the
+`DATABASE_URL` (paste the Neon direct string) and generates `AUTOPIA_MCP_TOKEN` (copy it from the
 service's Environment tab). Free services sleep after ~15 idle minutes and wake on the first
 request, so expect a slow first call. The nightly refresh runs as a free GitHub Actions
-schedule () using repository secrets  and
-; it can also be triggered by hand from the Actions tab.
+schedule (`.github/workflows/run-all.yml`) using repository secrets `DATABASE_URL` and
+`ANTHROPIC_API_KEY`; it can also be triggered by hand from the Actions tab.
 
 **2b. Server on Fly.io (paid account, always-on).** `fly.toml` and the `Dockerfile` are in the repo. One time:
 
