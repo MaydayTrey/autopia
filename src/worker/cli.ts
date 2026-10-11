@@ -24,7 +24,7 @@ import { planAll } from './exercise.js';
 import { log } from './log.js';
 import { runPipeline } from './pipeline.js';
 import { extractEndpoints, fetchSpecText, parseSpecText } from './spec.js';
-import { loadTarget } from './target.js';
+import { loadTarget, selectEndpoints } from './target.js';
 import { latestClaimsForVersion } from './diff.js';
 import { loadEnv } from './env.js';
 
@@ -70,7 +70,7 @@ async function main() {
     case 'plan': {
       const target = await loadTarget(need(args[0], 'target file'));
       const parsed = extractEndpoints(parseSpecText(await fetchSpecText(target.spec_url)));
-      const plan = planAll(parsed.endpoints, target, target.max_trials ?? 500);
+      const plan = planAll(selectEndpoints(parsed.endpoints, target), target, target.max_trials ?? 500);
       out(`${parsed.title} v${parsed.version}: ${parsed.endpoints.length} endpoint(s), ${plan.length} trials`);
       for (const t of plan) out(`${t.endpoint}  ${t.id.padEnd(36)} ${t.input.method} ${buildUrl(t.input).slice(0, 150)}`);
       break;

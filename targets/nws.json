@@ -1,0 +1,27 @@
+{
+  "name": "nws-weather-gov",
+  "category": "weather",
+  "spec_url": "https://api.weather.gov/openapi.json",
+  "include_paths": [
+    "/alerts/active",
+    "/points/{latitude},{longitude}",
+    "/gridpoints/{wfo}/{x},{y}/forecast",
+    "/stations",
+    "/stations/{stationId}",
+    "/stations/{stationId}/observations"
+  ],
+  "baseline": {
+    "/points/{latitude},{longitude}": { "latitude": "39.7456", "longitude": "-97.0892" },
+    "/gridpoints/{wfo}/{x},{y}/forecast": { "wfo": "TOP", "x": "32", "y": "81" },
+    "/stations/{stationId}": { "stationId": "KTOP" },
+    "/stations/{stationId}/observations": { "stationId": "KTOP" }
+  },
+  "optional_values": {
+    "/alerts/active": { "area": "KS", "status": "actual", "message_type": "alert", "urgency": "Expected", "severity": "Severe", "certainty": "Likely", "region_type": "land", "region": "AL", "zone": "KSZ009", "point": "39.7456,-97.0892", "event": "Tornado Warning", "code": "TOR" },
+    "/stations": { "state": "KS", "limit": "5" },
+    "/stations/{stationId}/observations": { "limit": "5" },
+    "/gridpoints/{wfo}/{x},{y}/forecast": { "units": "us" }
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 400 },
+  "max_trials": 400
+}

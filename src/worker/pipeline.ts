@@ -20,7 +20,7 @@ import { computeAndStoreDiff, countBy, type DiffEntry } from './diff.js';
 import { discover } from './discover.js';
 import { exercise, type ExerciseOptions } from './exercise.js';
 import { log } from './log.js';
-import type { TargetConfig } from './target.js';
+import { selectEndpoints, type TargetConfig } from './target.js';
 import { evidenceCheck, verify } from './verify.js';
 import { writeClaims } from './write.js';
 
@@ -49,8 +49,10 @@ export interface RunSummary {
 export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOptions = {}): Promise<RunSummary> {
   const started = Date.now();
 
-  // 1-2. DISCOVER
+  // 1-2. DISCOVER (then narrow to the target's include_paths, if any)
   const d = await discover(db, target);
+  d.parsed = { ...d.parsed, endpoints: selectEndpoints(d.parsed.endpoints, target) };
+  if (target.include_paths) log.info('discover', `include_paths: exercising ${d.parsed.endpoints.length} of the spec's endpoints`);
   const [run] = await db.insert(schema.testRuns).values({ toolVersionId: d.version.id, batteryHash: batteryHash(), status: 'running' }).returning();
   log.info('pipeline', `test_run #${run.id} for ${d.tool.name} version #${d.version.id}`);
 

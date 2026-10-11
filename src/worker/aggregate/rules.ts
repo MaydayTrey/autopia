@@ -130,7 +130,8 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
         break;
       }
       case 'boundary_below_min':
-      case 'boundary_above_max': {
+      case 'boundary_above_max':
+      case 'boundary_far_above_max': {
         if (!p) break;
         const bound = t.mutationType === 'boundary_below_min' ? `minimum ${p.minimum}` : `maximum ${p.maximum}`;
         const v = queryValue(t, pn);

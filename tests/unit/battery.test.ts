@@ -50,6 +50,7 @@ test('planTrials is deterministic and covers the battery', () => {
     'boundary_max_int:limit',
     'boundary_below_min:limit',
     'boundary_above_max:limit',
+    'boundary_far_above_max:limit',
     'boundary_long_string:q',
     'duplicate_param:q',
     'pagination_zero:page',
@@ -77,6 +78,7 @@ test('planTrials: mutation contents', () => {
   assert.equal(buildUrl(plan['wrong_type:limit'].input), 'http://x/v1/items?q=hello&limit=abc');
   assert.equal(buildUrl(plan['boundary_above_max:limit'].input), 'http://x/v1/items?q=hello&limit=101');
   assert.equal(buildUrl(plan['boundary_below_min:limit'].input), 'http://x/v1/items?q=hello&limit=0');
+  assert.equal(buildUrl(plan['boundary_far_above_max:limit'].input), 'http://x/v1/items?q=hello&limit=1000');
   assert.equal(buildUrl(plan['enum_invalid:sort'].input), 'http://x/v1/items?q=hello&sort=not_a_documented_value');
   assert.equal(buildUrl(plan['duplicate_param:q'].input), 'http://x/v1/items?q=hello&q=hello2');
   assert.equal(buildUrl(plan['extra_field'].input), 'http://x/v1/items?q=hello&autopia_unknown_param=1');

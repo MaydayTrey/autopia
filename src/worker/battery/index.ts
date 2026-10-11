@@ -16,7 +16,7 @@ import { sha256 } from '../spec.js';
 import type { TrialInput } from '../http.js';
 import type { TargetConfig } from '../target.js';
 
-export const BATTERY_VERSION = '1.0.0';
+export const BATTERY_VERSION = '1.1.0';
 
 export const MUTATION_TYPES = [
   'baseline',
@@ -32,6 +32,7 @@ export const MUTATION_TYPES = [
   'boundary_max_int',
   'boundary_below_min',
   'boundary_above_max',
+  'boundary_far_above_max',
   'boundary_long_string',
   'duplicate_param',
   'extra_field',
@@ -188,7 +189,11 @@ export function planTrials(ep: EndpointSpec, target: TargetConfig): Mutation[] {
       probe('boundary_negative', `Send -1 for ${p.name}`, '-1');
       probe('boundary_max_int', `Send 2147483648 (above int32) for ${p.name}`, '2147483648');
       if (p.minimum !== undefined) probe('boundary_below_min', `Send ${p.minimum - 1}, below documented minimum ${p.minimum}, for ${p.name}`, String(p.minimum - 1));
-      if (p.maximum !== undefined) probe('boundary_above_max', `Send ${p.maximum + 1}, above documented maximum ${p.maximum}, for ${p.name}`, String(p.maximum + 1));
+      if (p.maximum !== undefined) {
+        probe('boundary_above_max', `Send ${p.maximum + 1}, above documented maximum ${p.maximum}, for ${p.name}`, String(p.maximum + 1));
+        const far = p.maximum > 0 ? p.maximum * 10 : p.maximum + 1000;
+        probe('boundary_far_above_max', `Send ${far}, far above documented maximum ${p.maximum}, for ${p.name}`, String(far));
+      }
     }
     if (p.type === 'string' && !p.enum) probe('boundary_long_string', `Send a 2048-character string for ${p.name}`, LONG_STRING);
 

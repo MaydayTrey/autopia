@@ -17,6 +17,18 @@ export interface TargetConfig {
   headers?: Record<string, string>;
   rate?: { concurrency?: number; min_interval_ms?: number };
   max_trials?: number;
+  /** Only exercise these spec paths (exact match). Omit to exercise every GET endpoint. */
+  include_paths?: string[];
+}
+
+/** Apply include_paths; errors if a listed path is not in the spec (typo guard). */
+export function selectEndpoints<T extends { path: string }>(endpoints: T[], target: TargetConfig): T[] {
+  if (!target.include_paths || target.include_paths.length === 0) return endpoints;
+  const have = new Set(endpoints.map((e) => e.path));
+  const missing = target.include_paths.filter((p) => !have.has(p));
+  if (missing.length) throw new Error(`target include_paths not found in spec: ${missing.join(', ')}`);
+  const want = new Set(target.include_paths);
+  return endpoints.filter((e) => want.has(e.path));
 }
 
 export async function loadTarget(file: string): Promise<TargetConfig> {
@@ -41,5 +53,6 @@ export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {
     headers: raw.headers ?? {},
     rate: { concurrency: c, min_interval_ms: i },
     max_trials: raw.max_trials ?? 500,
+    include_paths: Array.isArray(raw.include_paths) ? raw.include_paths.map(String) : undefined,
   };
 }

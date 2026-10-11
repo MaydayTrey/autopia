@@ -1,10 +1,10 @@
-import { loadTarget } from '../src/worker/target.js';
+import { loadTarget, selectEndpoints } from '../src/worker/target.js';
 import { fetchSpecText, parseSpecText, extractEndpoints, hashSpec } from '../src/worker/spec.js';
 import { planAll } from '../src/worker/exercise.js';
 import { buildUrl } from '../src/worker/http.js';
 const target = await loadTarget(process.argv[2] ?? 'targets/open-meteo-forecast.json');
 const doc = parseSpecText(await fetchSpecText(target.spec_url));
-const parsed = extractEndpoints(doc);
+const parsed = { ...extractEndpoints(doc), endpoints: selectEndpoints(extractEndpoints(doc).endpoints, await loadTarget(process.argv[2] ?? 'targets/open-meteo-forecast.json')) };
 console.log('title:', parsed.title, 'version:', parsed.version, 'hash:', hashSpec(doc).slice(0, 12));
 for (const ep of parsed.endpoints) {
   console.log(ep.method, ep.path, 'server', ep.server, 'security', ep.hasSecurity);
