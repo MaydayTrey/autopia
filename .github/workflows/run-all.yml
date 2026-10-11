@@ -1,6 +1,6 @@
-# Nightly refresh of the compendium: re-fetch every spec, re-exercise, re-verify, diff.
-# Free on GitHub Actions. Needs repository secrets DATABASE_URL (Neon direct URL) and,
-# for the LLM pass, ANTHROPIC_API_KEY. Also runnable by hand from the Actions tab.
+# NIGHTLY refresh, rules only: re-fetch every spec, re-exercise, re-verify, diff, then prune.
+# No model cost. The previous run's LLM claims are carried forward and re-verified each night.
+# Needs repository secret DATABASE_URL (Neon direct URL). Also runnable by hand.
 name: run-all
 on:
   schedule:
@@ -17,8 +17,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run run-all
+      - run: npm run run-all -- --no-llm --prune-days 14
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AUTOPIA_LOG: info

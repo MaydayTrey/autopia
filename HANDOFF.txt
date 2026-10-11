@@ -296,6 +296,27 @@ HOSTING PREP (2026-10-12): everything except the two account steps
   (fly launch --copy-config --no-deploy; fly secrets set ...; fly
   deploy). Suite: 70 tests.
 
+COST CONTROLS + RETENTION (2026-10-12)
+  - Schedule split: .github/workflows/run-all.yml = NIGHTLY rules-only
+    ('run-all --no-llm --prune-days 14', free); run-all-llm.yml =
+    WEEKLY (Sunday 08:00 UTC) with the LLM pass. Model cost drops ~85%.
+  - CARRY-FORWARD (src/worker/aggregate/carry.ts): every run re-admits
+    the previous run's LLM claims as candidates, remapping each cited
+    trial to tonight's trial with the same endpoint+mutation id and
+    keeping the expected status; then evidence check + reproduction
+    as usual. Fresh LLM claims win key ties (crossref dedupe keeps the
+    first). A carried claim whose behavior changed fails the evidence
+    check and is dropped. Summary shows 'carried N (M unmappable)'.
+  - RETENTION (src/db/retention.ts, CLI 'prune [days]' / run-all
+    '--prune-days N', '--dry-run'): deletes runs older than N days
+    with their claims+trials, EXCEPT the latest finished run per
+    version and runs whose claims a claim_diff cites.
+  - Tests: tests/unit/carry.test.ts, tests/integration/retention.test.ts
+    (carry across rules-only runs, drop on changed behavior, prune
+    keeps latest). Suite: 75.
+  - Neon free tier: ~700 trial rows/day at 5 tools; with 14-day
+    retention the DB stays ~10k trials. Current export is ~7MB.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

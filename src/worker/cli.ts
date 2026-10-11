@@ -30,15 +30,20 @@ import { loadEnv } from './env.js';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
+import { pruneRuns } from '../db/retention.js';
 
 loadEnv();
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
+  allowNegative: true, // enables --no-llm and --no-reproduce
+
   options: {
     llm: { type: 'boolean', default: true },
     reproduce: { type: 'boolean', default: true },
     'max-trials': { type: 'string' },
+    'prune-days': { type: 'string' },
+    'dry-run': { type: 'boolean', default: false },
     divergences: { type: 'boolean', default: false },
     version: { type: 'string' },
     tool: { type: 'string' },
@@ -61,7 +66,7 @@ async function main() {
       const s = await runPipeline(db, target, { llm, reproduce: values.reproduce, maxTrials: values['max-trials'] ? Number(values['max-trials']) : undefined });
       out('');
       out(`RUN #${s.testRunId}  ${s.toolName}  version #${s.toolVersionId}${s.isNewVersion ? ' (new)' : ''}  ${(s.durationMs / 1000).toFixed(1)}s`);
-      out(`  trials ${s.trials} | candidates rules ${s.candidates.rules} + llm ${s.candidates.llm} (${s.candidates.llmDiscarded} discarded) | quarantined ${s.quarantined} | rejected ${s.rejected.length} | VERIFIED ${s.verified.length} | DIVERGENCES ${s.divergences}`);
+      out(`  trials ${s.trials} | candidates rules ${s.candidates.rules} + llm ${s.candidates.llm} (${s.candidates.llmDiscarded} discarded) + carried ${s.candidates.carried} (${s.candidates.carriedDropped} unmappable) | quarantined ${s.quarantined} | rejected ${s.rejected.length} | VERIFIED ${s.verified.length} | DIVERGENCES ${s.divergences}`);
       if (s.llm.model) out(`  llm ${s.llm.model}: ${s.llm.inputTokens} in / ${s.llm.outputTokens} out tokens`);
       if (s.diff) out(`  diff vs version #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}`);
       for (const r of s.rejected) out(`  rejected: ${r.reason}  <- ${r.claim.statement}`);
@@ -188,7 +193,20 @@ async function main() {
       out('');
       out(`RUN-ALL ${new Date().toISOString()}  ${files.length} target(s), ${failed} failed`);
       for (const r of rows) out('  ' + r);
+      if (values['prune-days']) {
+        const p = await pruneRuns(db, { keepDays: Number(values['prune-days']), dryRun: values['dry-run'] });
+        out(`  prune (keep ${values['prune-days']} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
+      }
       if (failed) process.exitCode = 1;
+      break;
+    }
+    case 'prune': {
+      // Delete old runs (claims + trials) except: latest finished run per version, runs cited by
+      // diffs, and anything younger than --prune-days. --dry-run reports without deleting.
+      const days = Number(values['prune-days'] ?? args[0] ?? 14);
+      const db = await getDb();
+      const p = await pruneRuns(db, { keepDays: days, dryRun: values['dry-run'] });
+      out(`prune (keep ${days} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
       break;
     }
     case 'docs': {

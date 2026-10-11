@@ -1,0 +1,23 @@
+# WEEKLY refresh WITH the LLM interpretation pass (the only per-target model cost).
+# Needs repository secrets DATABASE_URL and ANTHROPIC_API_KEY. Also runnable by hand.
+name: run-all-llm
+on:
+  schedule:
+    - cron: "0 8 * * 0"   # 08:00 UTC Sundays
+  workflow_dispatch:
+jobs:
+  run-all-llm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run run-all -- --prune-days 14
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AUTOPIA_LOG: info

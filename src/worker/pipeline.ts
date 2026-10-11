@@ -11,8 +11,11 @@ import { schema } from '../db/client.js';
 import { siblingClaims } from '../db/queries.js';
 import type { Claim, Trial } from '../db/schema.js';
 import type { LlmAdapter } from '../llm/adapter.js';
+import { carryForwardLlmClaims } from './aggregate/carry.js';
 import { llmClaims } from './aggregate/llm.js';
 import { rulesClaims } from './aggregate/rules.js';
+import { trialsByIds } from '../db/queries.js';
+import { latestClaimsForVersion } from './diff.js';
 import { batteryHash } from './battery/index.js';
 import type { CandidateClaim } from './claims.js';
 import { crossReference } from './crossref.js';
@@ -36,7 +39,7 @@ export interface RunSummary {
   isNewVersion: boolean;
   testRunId: number;
   trials: number;
-  candidates: { rules: number; llm: number; llmDiscarded: number };
+  candidates: { rules: number; llm: number; llmDiscarded: number; carried: number; carriedDropped: number };
   quarantined: number;
   rejected: { claim: CandidateClaim; reason: string }[];
   verified: Claim[];
@@ -70,7 +73,15 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
     } else {
       log.info('aggregate', 'LLM pass skipped (no adapter configured); rules-only run');
     }
-    const candidates = [...ruleClaims, ...(llmResult?.claims ?? [])];
+    // Carry forward the previous run's LLM claims (no model cost); fresh LLM claims win on key ties.
+    const prev = await latestClaimsForVersion(db, d.version.id);
+    let carried: ReturnType<typeof carryForwardLlmClaims> = { claims: [], dropped: [] };
+    if (prev) {
+      const prevLlm = prev.claims.filter((c) => c.source === 'llm');
+      const prevTrials = await trialsByIds(db, [...new Set(prevLlm.flatMap((c) => c.evidenceTrialIds))]);
+      carried = carryForwardLlmClaims(prevLlm, prevTrials, trials);
+    }
+    const candidates = [...ruleClaims, ...(llmResult?.claims ?? []), ...carried.claims];
 
     // 5a. EVIDENCE CHECK first (free). A claim that mis-states what its own
     // trials showed is simply wrong; dropping it here keeps it from being
@@ -103,7 +114,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
       isNewVersion: d.isNewVersion,
       testRunId: run.id,
       trials: trials.length,
-      candidates: { rules: ruleClaims.length, llm: llmResult?.claims.length ?? 0, llmDiscarded: llmResult?.discarded.length ?? 0 },
+      candidates: { rules: ruleClaims.length, llm: llmResult?.claims.length ?? 0, llmDiscarded: llmResult?.discarded.length ?? 0, carried: carried.claims.length, carriedDropped: carried.dropped.length },
       quarantined: xr.quarantined.length,
       rejected: v.rejected,
       verified: stored,

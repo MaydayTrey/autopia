@@ -80,7 +80,17 @@ npm run run-all      # run every targets/*.json in sequence, one summary line pe
 
 `run-all` re-fetches each spec, creates a new tool version when the spec hash changes,
 re-exercises, re-verifies, and computes the diff against the previous version automatically.
-It exits non-zero if any target fails. Schedule it with whatever you already have:
+It exits non-zero if any target fails.
+
+**Cost controls.** The model pass is the only cost that scales with targets, so the schedule
+splits in two: `run-all --no-llm` nightly (free) and `run-all` with the LLM weekly. Rules-only
+runs do not lose the model's claims: every run **carries forward** the previous run's LLM
+claims as candidates, remapped to tonight's trials by endpoint and probe, and sends them
+through the same evidence check and reproduction as everything else. A carried claim whose
+behavior changed fails and is dropped. **Retention:** `--prune-days N` (or `autopia prune N`)
+deletes runs older than N days except the latest finished run of each version and any run a
+diff cites, so the database stays small without losing anything queryable. `--dry-run` reports
+without deleting. Schedule it with whatever you already have:
 
 - Windows: Task Scheduler, action `npm run run-all` in the repo folder.
 - Linux/macOS: a cron line such as `0 3 * * * cd /path/to/autopia && npm run run-all >> runs.log`.
