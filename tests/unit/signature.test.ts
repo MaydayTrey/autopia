@@ -17,6 +17,21 @@ test('signatures of different live data with the same shape are equal', () => {
   assert.ok(!signaturesEqual(a, d));
 });
 
+test('signatures tolerate nullable fields and empty arrays, but not missing keys or type changes', () => {
+  const sig = (body: unknown) => signatureOf({ status: 200, bodyKind: 'json', body });
+  // first alert has geometry one minute, null the next
+  assert.ok(signaturesEqual(sig({ features: [{ geometry: { type: 'Point' }, ends: '2026-01-01' }] }), sig({ features: [{ geometry: null, ends: null }] })));
+  // empty list vs populated list
+  assert.ok(signaturesEqual(sig({ features: [] }), sig({ features: [{ id: 'x' }] })));
+  // a key disappearing is a real change
+  assert.ok(!signaturesEqual(sig({ features: [{ id: 'x', extra: 1 }] }), sig({ features: [{ id: 'x' }] })));
+  // a type change is a real change
+  assert.ok(!signaturesEqual(sig({ total: 1 }), sig({ total: '1' })));
+  // status and error message still must match exactly
+  assert.ok(!signaturesEqual(sig({ a: 1 }), signatureOf({ status: 201, bodyKind: 'json', body: { a: 1 } })));
+  assert.ok(!signaturesEqual(signatureOf({ status: 400, bodyKind: 'json', body: { reason: 'a' } }), signatureOf({ status: 400, bodyKind: 'json', body: { reason: 'b' } })));
+});
+
 test('error messages are extracted from common shapes and only compared on error statuses', () => {
   assert.equal(extractErrorMessage({ error: true, reason: 'Latitude must be in range' }), 'Latitude must be in range');
   assert.equal(extractErrorMessage({ error: { code: 'x', message: 'nested msg' } }), 'nested msg');

@@ -87,3 +87,17 @@ test('verify: evidence failures never reach reproduction; reproduce=false verifi
   assert.match(r2.rejected[0].reason, /skipped/);
   assert.equal(fetches, 0);
 });
+
+test('verify: a transient mismatch is retried once; a persistent one still rejects (500s bypass the executor backoff, so the count is verify alone)', async () => {
+  const t = trials();
+  let calls = 0;
+  const flakyOnce = async () => (++calls === 1 ? json(500, 'upstream hiccup') : json(200, OK_LIST));
+  const r1 = await verify([claim('a', [1], [200])], t, { fetchImpl: flakyOnce, sleep: noSleep, minIntervalMs: 0 });
+  assert.equal(r1.verified.length, 1, 'second attempt matched the stored signature');
+  assert.equal(calls, 2);
+  calls = 0;
+  const alwaysDifferent = async () => (calls++, json(500, 'down'));
+  const r2 = await verify([claim('a', [1], [200])], t, { fetchImpl: alwaysDifferent, sleep: noSleep, minIntervalMs: 0 });
+  assert.equal(r2.verified.length, 0);
+  assert.equal(calls, 2, 'exactly two attempts, never more');
+});

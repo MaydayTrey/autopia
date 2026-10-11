@@ -64,11 +64,19 @@ export async function verify(claims: CandidateClaim[], trialsById: Map<number, T
   for (const id of ids) {
     const t = trialsById.get(id)!;
     const stored = t.signature as unknown as ResponseSignature;
-    const { out } = await runOne(t.input as unknown as TrialInput, opts);
-    const same = signaturesEqual(stored, out.signature);
+    let { out } = await runOne(t.input as unknown as TrialInput, opts);
+    let same = signaturesEqual(stored, out.signature);
+    if (!same) {
+      // One retry: a transient upstream hiccup must not discard a true claim.
+      // The retry must match the STORED signature exactly as before; no loosening.
+      log.debug('verify', `trial ${id} (${t.mutationId}) mismatched once (${describeSignature(out.signature)}); retrying`);
+      if (interval > 0) await sleep(interval);
+      out = (await runOne(t.input as unknown as TrialInput, opts)).out;
+      same = signaturesEqual(stored, out.signature);
+    }
     cache.set(id, same);
     reproductions.push({ trialId: id, ok: same, stored, fresh: out.signature });
-    if (!same) log.warn('verify', `trial ${id} (${t.mutationId}) did NOT reproduce: stored ${describeSignature(stored)}, fresh ${describeSignature(out.signature)}`);
+    if (!same) log.warn('verify', `trial ${id} (${t.mutationId}) did NOT reproduce (2 attempts): stored ${describeSignature(stored)}, fresh ${describeSignature(out.signature)}`);
     else log.debug('verify', `trial ${id} (${t.mutationId}) reproduced: ${describeSignature(stored)}`);
     if (interval > 0) await sleep(interval);
   }

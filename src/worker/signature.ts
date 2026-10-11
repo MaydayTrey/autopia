@@ -74,7 +74,33 @@ export function signatureOf(resp: {
   };
 }
 
+/**
+ * Two signatures match when status, body kind, error message and transport
+ * error are identical and their shapes are COMPATIBLE. Compatibility, not
+ * equality, because live data has nullable fields and sometimes-empty arrays:
+ * an alert feed whose first item has geometry one minute and null the next is
+ * the same API behavior. Rules:
+ *   - 'null' is compatible with any shape (nullable field)
+ *   - an empty array is compatible with any array
+ *   - objects must have the same key set, with each key compatible
+ *   - everything else must be identical
+ */
 export function signaturesEqual(a: ResponseSignature, b: ResponseSignature): boolean {
+  return a.status === b.status && a.bodyKind === b.bodyKind && a.errorMessage === b.errorMessage && a.transportError === b.transportError && shapesCompatible(a.shape, b.shape);
+}
+
+export function shapesCompatible(a: unknown, b: unknown): boolean {
+  if (a === 'null' || b === 'null' || a === '…' || b === '…') return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a[1] === 'empty' || b[1] === 'empty') return true;
+    return shapesCompatible(a[1], b[1]);
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+    const ka = Object.keys(a as object).sort();
+    const kb = Object.keys(b as object).sort();
+    if (ka.length !== kb.length || ka.some((k, i) => k !== kb[i])) return false;
+    return ka.every((k) => shapesCompatible((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  }
   return canonicalJson(a) === canonicalJson(b);
 }
 

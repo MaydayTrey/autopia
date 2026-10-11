@@ -67,7 +67,9 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
     let res: Response;
     try {
       const headers: Record<string, string> = { 'user-agent': USER_AGENT, accept: 'application/json, */*;q=0.5', ...input.headers };
-      for (const k of Object.keys(headers)) if (headers[k] === '') delete headers[k]; // '' = send no such header
+      // '' = send no such header. Node's fetch injects "user-agent: node" when the header is
+      // absent, so for user-agent an explicit empty value is the closest to "missing" we can send.
+      for (const k of Object.keys(headers)) if (headers[k] === '' && k !== 'user-agent') delete headers[k];
       res = await fetchImpl(url, {
         method: input.method,
         headers,
