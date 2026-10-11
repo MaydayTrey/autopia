@@ -1,104 +1,100 @@
 ====================================================================
 AUTOPIA - HANDOFF FOR THE NEXT AGENT
 ====================================================================
->>> STOPPING POINT 2026-10-12, second session. READ THIS FIRST. <<<
+>>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 
 STATE OF THE WORKING TREE AT HANDOFF
-  main is 3 commits AHEAD of origin/main, all unpushed (Trey has not said
-  'push' yet):
-    2df81f4  WIP at handoff (semantic probes, honest auth claims, compact
-             MCP evidence, three new targets)        <- previous session
-    d2f65b4  Sheet wording fixes (DONE #3 below)
-    HEAD     Discovery: MCP instructions block, host/URL lookups, tool
-             descriptions written for the moment of use (DONE #4 below)
-  Full suite + typecheck GREEN at HEAD: 116 tests, 0 failing.
+  origin/main = b319509 (pushed 2026-10-12 after Trey said 'push').
+  Local commits AFTER that, NOT pushed (need the word again):
+    d0b28d4  Carried LLM claims: dedupe by endpoint + probe set regardless
+             of kind, also carried-vs-carried; timestamp wording; "0" vs
+             "0 (below the documented minimum)"
+    HEAD     Page-size cap needs proof that more items exist; prompt:
+             state each cross-endpoint finding once
+  Full suite + typecheck GREEN at HEAD: 119 tests, 0 failing.
   FLAKE to know about: tests/integration/postgres-path.test.ts failed in
   its before() hook (PGlite.create on a fresh temp dir -> ErrnoError
-  errno 28) in 2 of 5 full-suite runs this session; it always passed
+  errno 28) in 2 of ~9 full-suite runs this session; it always passed
   alone and on the immediate re-run, and it failed first on the untouched
-  2df81f4 tree, so no change here caused it. If it fails, re-run; if it
-  fails twice in a row, treat it as real.
+  2df81f4 tree. If it fails, re-run; if it fails twice in a row, treat it
+  as real.
+  A rules-only github-rest run (--no-llm) may still be in flight when you
+  read this: started ~20:20 to replace the two false clamp claims on the
+  live sheet (DONE #6). Check 'npm run autopia -- runs github-rest'; a
+  finished run #50 with 0 rejected means it landed.
 
 DONE THIS SESSION (2026-10-12, second session)
-  1. Handoff step 1 (full suite) done; push still needs the word.
-  2. Handoff step 2 (github-rest re-run with GITHUB_TOKEN) NOT RUN: the
-     agent's permission layer blocked launching a run that calls GitHub
-     with Trey's token and writes to Neon. Trey can run it himself from
-     the repo folder in PowerShell:
-       $env:GITHUB_TOKEN = [Environment]::GetEnvironmentVariable('GITHUB_TOKEN','User')
-       npm run autopia -- run targets/github-rest.json
-     Expect: bad_auth -> 401 'Bad credentials' (no bad_auth rejections),
-     auth claims naming the rate-limit tier, per_page clamp to 100, empty
-     last page, Link header, since-format claims. The two background runs
-     from the previous session are accounted for: github-rest #40
-     finished with the 7 expected bad_auth rejections (old redaction),
-     anthropic-api #44 finished with 0 rejected; no stuck 'running' rows.
-  3. Handoff step 3 (read the three new sheets) done. Findings and fixes
-     (commit d2f65b4, each with a unit test):
-     - error_shape counted auth / HEAD / XML / trailing-slash rejections
-       as validation errors ('3 distinct status/shape combinations ...
-       statuses 401, 404, 405' on anthropic /v1/models/{model_id}; npm
-       dist-tags 404 + 406). Only bad-VALUE probes count now
-       (NON_VALIDATION_PROBES in rules.ts).
-     - 'a body of shape "string"' (npm /{package}/{version} answers with
-       a JSON-encoded string) -> 'a bare JSON string body'
-       (describeBodyShape in rules.ts).
-     - 'trailing slash returns HTTP 200 JSON (without it: HTTP 200)' ->
-       'A trailing slash on the path is tolerated ...' when status and
-       signature match the baseline.
-     - '`limit` rejects 999999999, 100000, 0, a value just above the
-       documented maximum, ..., 0, ...': duplicate labels (boundary_zero
-       and pagination_zero both read "0") collapsed; spec-relative
-       boundary probes now show the value actually sent, e.g. '101 (just
-       above the documented maximum)' (docs.ts probeLabel reads the probe
-       trial's query; path params fall back to the generic label).
-     - anthropic-api said the same thing twice, twice: a carried LLM
-       claim (run #43) plus the fresh LLM claim (run #44) restating it
-       with a different param or verdict slot, hence a different key.
-       New dropSupersededCarried() in carry.ts drops a carried claim when
-       a fresh LLM claim on the same endpoint + kind cites the same probe
-       set (baseline ignored); wired in pipeline.ts before crossref.
-       Takes effect on each tool's next LLM run; the sheets in Neon show
-       the duplicates until then.
-     - 'common to all 2 endpoints' -> 'common to both endpoints'.
-     Seen, not changed: pypi's timestamp claim joins two formats with a
-     semicolon ('ISO 8601 without a timezone designator (...); ISO 8601
-     with a Z suffix (...)') and reads as one garbled sentence
-     (shape-rules.ts timestamp rule should name the fields or say 'two
-     formats'); anthropic's 'no rate-limit headers' is true for
-     /v1/models, but /v1/messages does send anthropic-ratelimit-*
-     headers, so that wording should scope itself to the probed
-     endpoints once the JSON-body battery exists.
-  4. ADOPTION lever #3 shipped (the cheapest; ranking under NEXT PHASE):
-     - src/server/mcp.ts: INSTRUCTIONS constant passed to McpServer,
-       TRIGGER / SKIP / TRUST shape copied from the claude-api skill:
-       'BEFORE your first request in a session to any host the
-       compendium covers, call get_tool_docs with that host or URL';
-       'AFTER an API call fails or surprises you ... search_claims with
-       the host and the symptom'.
-     - Every `tool` argument now accepts a NAME, a HOST or a URL
-       (queries.ts hostOf / runHosts / toolsForHost / resolveToolRef).
-       Hosts come from stored trial URLs, so target `server` overrides
-       are covered without a schema change. list_tools returns `hosts`
-       per tool (latest run). A host served by several tools -> error
-       naming them. Tests: tests/unit/host-ref.test.ts; mcp.test.ts
-       (instructions, hosts, host and URL forms, unknown host).
-     - Tool descriptions rewritten for the moment of use ('READ THIS
-       BEFORE YOUR FIRST CALL ...', 'Call this when an API call FAILED
-       ...'); README tool paragraph updated for the host form.
-     Render auto-deploys from main, so all of this goes live on push.
+  1. Previous handoff step 1 (full suite) done; three commits pushed.
+  2. github-rest RE-RUN DONE as run #45 (Trey asked the agent to run it;
+     GITHUB_TOKEN read from the User env in PowerShell). 284 verified,
+     0 rejected, 12 spec divergences (all the same lenient parse:
+     per_page/page accept 'abc', sort/order/direction accept undocumented
+     enum values). VERDICT ON THE SEMANTIC BATTERY: it earns its keep.
+     New, actionable, all reproduced:
+       - bad_auth -> 401 'Bad credentials' on every endpoint (the
+         redaction fix held; no bad_auth rejections);
+       - omitting Authorization is ACCEPTED but served from the 60/h tier
+         instead of 5000/h (x-ratelimit-limit), i.e. silently
+         unauthenticated;
+       - per_page=100000 is clamped to 100 on commits and issues (proved
+         by Link rel=next), page=999999999 -> 200 with an empty list;
+       - Link header rel=next,last on commits/releases, rel=next on
+         issues;
+       - 'since' formats DIFFER PER ENDPOINT: commits accepts a bare
+         date, an epoch and even a non-date string (silently ignored?);
+         issues rejects epoch and non-date with 422 'needs to be in ISO
+         8601 format: YYYY-MM-DDTHH:MM:SSZ'. That is the kind of claim an
+         agent acts on.
+     Two FALSE claims in that run, fixed in HEAD (DONE #6): 'values above
+     17 are clamped' on releases (the repo has 17 releases) and 'above 1'
+     on a one-hit search.
+  3. Previous handoff step 3 (sheet review) done; fixes in d2f65b4
+     (pushed): validation-only error shapes, bare-JSON-string bodies,
+     tolerated trailing slash, deduped "0" labels, concrete boundary
+     values, dropSupersededCarried(), 'both endpoints'.
+  4. ADOPTION lever #3 shipped and pushed (b319509): MCP INSTRUCTIONS
+     block (TRIGGER / SKIP / TRUST), every `tool` arg accepts a name, a
+     host or a URL (queries.ts hostOf / runHosts / toolsForHost /
+     resolveToolRef; hosts come from trial URLs), list_tools returns
+     hosts, descriptions rewritten for the moment of use. README updated.
+     Render deploys it from main.
+  5. pypi re-run (#46, #48) and anthropic-api re-run (#47, #49), both
+     0 rejected, to regenerate their sheets with the fixes. They exposed
+     that the first dedupe was too narrow, hence d0b28d4: the key is now
+     endpoint + non-baseline probe set regardless of kind (the fresh pass
+     filed the same finding as error_behavior and as undocumented), and
+     carried claims are deduped against each other (two carried
+     'unknown model id' claims, observes vs rejects, would have survived
+     forever); the more confident one stays; runs on rules-only nights
+     too. pypi's timestamp claim now reads 'use 2 formats: A and B; check
+     which field you read'. Sheets verified clean after #48/#49 EXCEPT:
+     anthropic-api still carries a cross-endpoint comparison twice, once
+     under each endpoint (GET /v1/models after_id vs GET /v1/models/
+     {model_id} model_id). No probe-set rule can catch that; the LLM
+     prompt now says 'State each finding ONCE ... file it under the
+     endpoint whose behavior is the surprise' (llm.ts). Judge on the next
+     LLM run; if it persists, dedupe across endpoints when the probe
+     sets are equal ignoring endpoint.
+  6. page_size_clamp (rules.ts R14) now requires proof that more items
+     exist: Link rel="next", a top-level total field above the count, or
+     the documented maximum reached (hasNextLink / totalField). Unit test
+     covers all four cases. The mock API had the same false positive
+     ('limit=100000 returns 3 items: values above 3 are clamped').
 
 IMMEDIATE NEXT STEPS (in order)
-  1. Trey says 'push' (3 commits). Then check on the live server that
-     get_tool_docs {"tool":"api.github.com"} resolves (hosts are read
-     from trials in Neon; github-rest trials carry the real host).
-  2. github-rest re-run with GITHUB_TOKEN (DONE #2 above has the
-     commands and what to look for). That run is still the judgment on
-     whether the semantic battery earns its keep.
+  1. Trey says 'push' (2 commits since b319509). Then confirm on the live
+     server that get_tool_docs {"tool":"api.github.com"} resolves.
+  2. Confirm github-rest run #50 (rules-only) finished with 0 rejected
+     and the releases/search clamp lines are gone from 'docs github-rest'.
   3. Lever #1: a Claude Code plugin with a PreToolUse hook on Bash /
      WebFetch that matches the request URL against list_tools hosts and
      injects the sheet. Lever #4: a SKILL.md carrying the same TRIGGER
      text. Lever #2: PostToolUse on non-2xx responses.
+  4. Battery follow-ups the github run suggests: a 'since' probe that
+     proves whether an ignored format is silently IGNORED (compare result
+     counts / first item date against the baseline) rather than
+     'accepted'; a rate-limit-tier claim is now produced by the no_auth
+     probe, but 403-vs-429 and Retry-After honesty are still untested.
 
 NEXT PHASE: ADOPTION / DISCOVERY (Trey's agent, 2026-10-12, verbatim
   gist: 'an agent would not know to check Autopia before calling an
@@ -612,6 +608,11 @@ GITHUB TARGET (2026-10-12): targets/github-rest.json = first KEYED file
   (targets/<name>.json); run-all warns on mismatch.
   Contributor tier remains the route for APIs whose token cannot live
   in Actions secrets.
+  Run #45 (2026-10-12, token present, battery 1.3.0, LLM on): 249 trials,
+  284 verified, 0 rejected, 12 divergences (same lenient parse as #39).
+  First run where the semantic probes paid off; details under DONE #2 at
+  the top. Run #50 (rules-only) re-issued the same day after the clamp
+  rule was tightened.
 
 SECOND SHEET FEEDBACK ROUND (2026-10-12), from Trey's agent on github-rest:
   (a) 'omit auth accepted' + a 5000 limit looked like a token leak.
