@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { carryForwardLlmClaims } from '../../src/worker/aggregate/carry.js';
+import { carryForwardLlmClaims, dropSupersededCarried } from '../../src/worker/aggregate/carry.js';
+import type { CandidateClaim } from '../../src/worker/claims.js';
 import { OK_LIST, fakeClaim, fakeTrial, resetIds } from '../helpers.js';
 
 test('carryForwardLlmClaims remaps evidence by endpoint+probe, keeps statuses, skips rules claims', () => {
@@ -42,4 +43,55 @@ test('carryForwardLlmClaims drops claims whose probe is missing tonight or whose
   assert.deepEqual(r.dropped.map((d) => d.claim_key), ['k1', 'k2']);
   assert.match(r.dropped[0].reason, /probe extra_field not in this run/);
   assert.match(r.dropped[1].reason, /no longer exists/);
+});
+
+
+test('dropSupersededCarried drops a carried LLM claim when a fresh one on the same endpoint+kind cites the same probes (baseline ignored, param/verdict may differ)', () => {
+  resetIds(100);
+  const baseline = fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST });
+  const nullBefore = fakeTrial({ mutationId: 'null_value:before_id', status: 400, body: { error: 'not found' } });
+  const nullAfter = fakeTrial({ mutationId: 'null_value:after_id', status: 400, body: { error: 'not found' } });
+  const presentBefore = fakeTrial({ mutationId: 'optional_present:before_id', status: 200, body: OK_LIST });
+  const extra = fakeTrial({ mutationId: 'extra_field', status: 200, body: OK_LIST });
+  const trialsById = new Map([baseline, nullBefore, nullAfter, presentBefore, extra].map((t) => [t.id, t]));
+  const cand = (p: { key: string; kind: string; param: string | null; verdict: 'accepts' | 'rejects' | 'observes'; ids: number[]; endpoint?: string }): CandidateClaim => ({
+    claim_key: p.key,
+    statement: p.key,
+    endpoint: p.endpoint ?? 'GET /v1/models',
+    kind: p.kind as CandidateClaim['kind'],
+    param: p.param,
+    verdict: p.verdict,
+    source: 'llm',
+    confidence: 0.8,
+    evidence_trial_ids: p.ids,
+    expectations: p.ids.map((id) => ({ trial_id: id, status: trialsById.get(id)!.statusCode })),
+    diverges_from_spec: false,
+    spec_says: null,
+  });
+
+  // anthropic-api run #44: the carried claim named after_id and cited no baseline; the fresh one named before_id and added the baseline.
+  const carriedCursor = cand({ key: 'llm:undocumented_constraint:get_v1_models:after_id:rejects:null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: 'after_id', verdict: 'rejects', ids: [nullAfter.id, nullBefore.id] });
+  const freshCursor = cand({ key: 'llm:undocumented_constraint:get_v1_models:before_id:rejects:baseline+null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: 'before_id', verdict: 'rejects', ids: [baseline.id, nullAfter.id, nullBefore.id] });
+  // Same probes but a different KIND: a different finding, kept.
+  const carriedOtherKind = cand({ key: 'llm:error_behavior:get_v1_models:-:observes:null_value:after_id+null_value:before_id', kind: 'error_behavior', param: null, verdict: 'observes', ids: [nullAfter.id, nullBefore.id] });
+  // Same probes and kind on a DIFFERENT endpoint: kept.
+  const carriedOtherEndpoint = cand({ key: 'llm:undocumented_constraint:get_v1_other:-:rejects:null_value:after_id+null_value:before_id', kind: 'undocumented_constraint', param: null, verdict: 'rejects', ids: [nullAfter.id, nullBefore.id], endpoint: 'GET /v1/other' });
+  // Identical key to a fresh claim: left alone here (crossref's exact-key dedupe already keeps the fresh one).
+  const carriedSameKey = cand({ key: 'llm:pagination:get_v1_models:before_id:accepts:baseline+optional_present:before_id', kind: 'pagination', param: 'before_id', verdict: 'accepts', ids: [baseline.id, presentBefore.id] });
+  const freshSameKey = { ...carriedSameKey };
+  // Nothing fresh cites extra_field: kept.
+  const carriedUnmatched = cand({ key: 'llm:undocumented:get_v1_models:-:observes:extra_field', kind: 'undocumented', param: null, verdict: 'observes', ids: [extra.id] });
+
+  const r = dropSupersededCarried(
+    { claims: [carriedCursor, carriedOtherKind, carriedOtherEndpoint, carriedSameKey, carriedUnmatched], dropped: [{ claim_key: 'earlier', reason: 'probe x not in this run' }] },
+    [freshCursor, freshSameKey],
+    trialsById,
+  );
+  assert.deepEqual(
+    r.claims.map((c) => c.claim_key),
+    [carriedOtherKind.claim_key, carriedOtherEndpoint.claim_key, carriedSameKey.claim_key, carriedUnmatched.claim_key],
+  );
+  assert.equal(r.dropped.length, 2, 'earlier drops are preserved');
+  assert.equal(r.dropped[1].claim_key, carriedCursor.claim_key);
+  assert.match(r.dropped[1].reason, /superseded by fresh LLM claim llm:undocumented_constraint:get_v1_models:before_id/);
 });

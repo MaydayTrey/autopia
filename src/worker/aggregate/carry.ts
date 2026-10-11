@@ -71,3 +71,29 @@ export function carryForwardLlmClaims(prev: Claim[], prevTrials: Map<number, Tri
   if (out.claims.length || out.dropped.length) log.info('aggregate', `carried forward ${out.claims.length} LLM claim(s) from the previous run, ${out.dropped.length} could not be remapped`);
   return out;
 }
+
+/**
+ * A fresh LLM pass does not know what was carried, so it restates findings in
+ * new words, with the param or verdict slot filled differently; both then
+ * survive the exact-key dedupe and the sheet says the same thing twice
+ * (anthropic-api run #44: before_id/after_id cursor rule, unknown model id).
+ * Treat a carried claim as SUPERSEDED when a fresh LLM claim on the same
+ * endpoint and kind cites the same set of probes (ignoring the baseline).
+ * The fresh wording wins and still goes through evidence check and
+ * reproduction like everything else.
+ */
+export function dropSupersededCarried(carried: CarryResult, fresh: CandidateClaim[], trialsById: Map<number, Trial>): CarryResult {
+  const probeSet = (c: CandidateClaim) =>
+    [...new Set(c.evidence_trial_ids.map((id) => trialsById.get(id)?.mutationId ?? `#${id}`).filter((m) => m !== 'baseline'))].sort().join('+');
+  const freshKeys = new Map<string, string>();
+  for (const f of fresh) freshKeys.set(`${f.endpoint}|${f.kind}|${probeSet(f)}`, f.claim_key);
+  const out: CarryResult = { claims: [], dropped: [...carried.dropped] };
+  for (const c of carried.claims) {
+    const by = freshKeys.get(`${c.endpoint}|${c.kind}|${probeSet(c)}`);
+    if (by && by !== c.claim_key) out.dropped.push({ claim_key: c.claim_key, reason: `superseded by fresh LLM claim ${by}` });
+    else out.claims.push(c);
+  }
+  const n = out.dropped.length - carried.dropped.length;
+  if (n) log.info('aggregate', `${n} carried LLM claim(s) superseded by fresh LLM claims citing the same probes`);
+  return out;
+}

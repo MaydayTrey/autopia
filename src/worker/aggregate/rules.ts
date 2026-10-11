@@ -23,6 +23,16 @@ const ok = (t: Trial) => t.statusCode !== null && t.statusCode >= 200 && t.statu
 const rejected = (t: Trial) => t.statusCode !== null && t.statusCode >= 400 && t.statusCode < 500;
 const usable = (t: Trial) => t.statusCode !== null && t.errorText !== 'rate_limited';
 const status = (t: Trial) => `HTTP ${t.statusCode}`;
+/** Probes whose rejection is not a validation error (wrong credentials, HEAD, XML, trailing slash). */
+const NON_VALIDATION_PROBES = new Set(['bad_auth', 'no_auth', 'path_trailing_slash', 'method_head', 'wrong_content_type']);
+/** Human wording for an error-body shape: JSON objects as their shape, bare strings and non-JSON bodies by kind. */
+export function describeBodyShape(shape: unknown): string {
+  if (shape === 'string') return 'a bare JSON string body';
+  if (shape === 'text') return 'a plain-text body';
+  if (shape === 'empty') return 'an empty body';
+  if (typeof shape === 'string') return `a ${shape} body`;
+  return `a body of shape ${JSON.stringify(shape)}`;
+}
 
 function claim(
   rule: string,
@@ -187,7 +197,10 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
         break;
       }
       case 'path_trailing_slash':
-        if (t.statusCode !== null) out.push(claim('path_trailing_slash', ep, null, 'undocumented', 'observes', `The path with a trailing slash returns ${desc} (without it: ${status(base)}).`, [base, t]));
+        if (t.statusCode !== null) {
+          const same = t.statusCode === base.statusCode && signaturesEqual(sig(t), sig(base));
+          out.push(claim('path_trailing_slash', ep, null, 'undocumented', 'observes', same ? `A trailing slash on the path is tolerated: the response is ${status(t)} either way (without it: ${status(base)}).` : `The path with a trailing slash returns ${desc} (without it: ${status(base)}).`, [base, t]));
+        }
         break;
       case 'method_head':
         if (t.statusCode !== null) out.push(claim('method_head', ep, null, 'undocumented', 'observes', `HEAD with the baseline query returns ${status(t)}.`, [base, t]));
@@ -233,7 +246,9 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
   }
 
   // R15: error behavior. Do validation errors share one status + body shape?
-  const errs = all.filter((t) => rejected(t) && t.mutationType !== 'bad_auth' && t.mutationType !== 'path_trailing_slash');
+  // Only probes that send a bad VALUE count: auth, method, content-type and
+  // path-shape probes fail for other reasons and would inflate the shape count.
+  const errs = all.filter((t) => rejected(t) && !NON_VALIDATION_PROBES.has(t.mutationType));
   if (errs.length >= 3) {
     const groups = new Map<string, Trial[]>();
     for (const t of errs) {
@@ -246,7 +261,7 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
       const shape = JSON.parse(bigKey).shape;
       const evidence = big.slice(0, 8);
       out.push(
-        claim('error_shape', ep, null, 'error_behavior', 'observes', `Validation errors consistently return HTTP ${big[0].statusCode} with a body of shape ${JSON.stringify(shape)} (${big.length} of ${errs.length} rejected probes).`, evidence, { confidence: Math.min(0.95, 0.6 + share * 0.35) }),
+        claim('error_shape', ep, null, 'error_behavior', 'observes', `Validation errors consistently return HTTP ${big[0].statusCode} with ${describeBodyShape(shape)} (${big.length} of ${errs.length} rejected probes).`, evidence, { confidence: Math.min(0.95, 0.6 + share * 0.35) }),
       );
     } else {
       const statuses = [...new Set(errs.map((t) => t.statusCode))].sort().join(', ');

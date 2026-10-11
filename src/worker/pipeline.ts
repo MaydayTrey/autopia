@@ -11,7 +11,7 @@ import { schema } from '../db/client.js';
 import { siblingClaims } from '../db/queries.js';
 import type { Claim, Trial } from '../db/schema.js';
 import type { LlmAdapter } from '../llm/adapter.js';
-import { carryForwardLlmClaims } from './aggregate/carry.js';
+import { carryForwardLlmClaims, dropSupersededCarried } from './aggregate/carry.js';
 import { llmClaims } from './aggregate/llm.js';
 import { rulesClaims } from './aggregate/rules.js';
 import { trialsByIds } from '../db/queries.js';
@@ -81,6 +81,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
       const prevLlm = prev.claims.filter((c) => c.source === 'llm');
       const prevTrials = await trialsByIds(db, [...new Set(prevLlm.flatMap((c) => c.evidenceTrialIds))]);
       carried = carryForwardLlmClaims(prevLlm, prevTrials, trials);
+      if (llmResult?.claims.length) carried = dropSupersededCarried(carried, llmResult.claims, trialsById);
     }
     const candidates = [...ruleClaims, ...(llmResult?.claims ?? []), ...carried.claims];
 

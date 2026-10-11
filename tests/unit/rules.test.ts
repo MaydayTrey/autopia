@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rulesClaims } from '../../src/worker/aggregate/rules.js';
+import { describeBodyShape, rulesClaims } from '../../src/worker/aggregate/rules.js';
+import { signatureOf } from '../../src/worker/signature.js';
 import { ERR, OK_LIST, fakeTrial, itemsEndpoint, resetIds } from '../helpers.js';
 
 function v1Trials() {
@@ -126,4 +127,66 @@ test('rules: path-parameter probes produce claims with the substituted value', (
   assert.equal(byKey['rule:boundary_below_min:get_v1_items_id:id'].verdict, 'rejects');
   assert.match(byKey['rule:boundary_below_min:get_v1_items_id:id'].statement, /"0"/);
   assert.equal(byKey['rule:boundary_below_min:get_v1_items_id:id'].diverges_from_spec, false);
+});
+
+
+test('rules: error_shape counts only bad-VALUE probes; auth, HEAD, XML and trailing-slash rejections are not validation errors', () => {
+  resetIds();
+  const q: [string, string][] = [['q', 'hello']];
+  const trials = [
+    fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }),
+    fakeTrial({ mutationId: 'wrong_type:limit', status: 400, body: ERR('invalid_limit', 'limit must be an integer'), query: [...q, ['limit', 'abc']] }),
+    fakeTrial({ mutationId: 'boundary_below_min:limit', status: 400, body: ERR('invalid_limit', 'limit must be >= 1'), query: [...q, ['limit', '0']] }),
+    fakeTrial({ mutationId: 'enum_invalid:sort', status: 400, body: ERR('invalid_sort', 'sort must be asc or desc'), query: [...q, ['sort', 'zzz']] }),
+    // Five rejections that are NOT validation errors, each with its own status/shape. Counted, they made
+    // anthropic-api /v1/models/{model_id} and npm dist-tags look like they had several error shapes.
+    fakeTrial({ mutationId: 'no_auth:User-Agent', status: 403, body: { message: 'forbidden' }, query: q, headers: { 'user-agent': '' } }),
+    fakeTrial({ mutationId: 'bad_auth:api_key', status: 401, body: 'unauthorized', query: [...q, ['api_key', 'invalid-key-autopia']] }),
+    fakeTrial({ mutationId: 'method_head', status: 405, query: q, method: 'HEAD' }),
+    fakeTrial({ mutationId: 'wrong_content_type', status: 406, body: 'not acceptable', query: q, headers: { accept: 'application/xml' } }),
+    fakeTrial({ mutationId: 'path_trailing_slash', status: 404, body: 'not found', query: q, url: 'http://x/v1/items/' }),
+  ];
+  const byKey = Object.fromEntries(rulesClaims(trials, [itemsEndpoint]).map((c) => [c.claim_key, c]));
+  const err = byKey['rule:error_shape:get_v1_items:-'];
+  assert.ok(err);
+  assert.match(err.statement, /consistently return HTTP 400 with a body of shape/);
+  assert.match(err.statement, /\(3 of 3 rejected probes\)/);
+});
+
+test('rules: error bodies that are bare JSON strings are described as such, not as shape "string"', () => {
+  resetIds();
+  const q: [string, string][] = [['q', 'hello']];
+  // npm's /{package}/{version} answers rejections with a JSON-encoded string: "version not found: abc".
+  const jsonString = (mutationId: string, query: [string, string][], text: string) => {
+    const t = fakeTrial({ mutationId, status: 404, body: text, query });
+    const signature = signatureOf({ status: 404, bodyKind: 'json', body: text, transportError: null });
+    return { ...t, response: { ...(t.response as object), body: text, bodyKind: 'json' }, signature: signature as unknown as object };
+  };
+  const trials = [
+    fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }),
+    jsonString('wrong_type:limit', [...q, ['limit', 'abc']], 'version not found: abc'),
+    jsonString('null_value:limit', [...q, ['limit', 'null']], 'version not found: null'),
+    jsonString('boundary_long_string:limit', [...q, ['limit', 'x'.repeat(2048)]], 'version not found: xxx'),
+  ];
+  const byKey = Object.fromEntries(rulesClaims(trials, [itemsEndpoint]).map((c) => [c.claim_key, c]));
+  assert.match(byKey['rule:error_shape:get_v1_items:-'].statement, /HTTP 404 with a bare JSON string body \(3 of 3 rejected probes\)/);
+  assert.equal(describeBodyShape('text'), 'a plain-text body');
+  assert.equal(describeBodyShape('empty'), 'an empty body');
+  assert.equal(describeBodyShape({ error: 'string' }), 'a body of shape {"error":"string"}');
+});
+
+test('rules: a trailing slash that changes nothing is reported as tolerated, not as "returns HTTP 200 (without it: HTTP 200)"', () => {
+  resetIds();
+  const q: [string, string][] = [['q', 'hello']];
+  const same = rulesClaims(
+    [fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }), fakeTrial({ mutationId: 'path_trailing_slash', status: 200, body: OK_LIST, query: q, url: 'http://x/v1/items/' })],
+    [itemsEndpoint],
+  ).find((c) => c.claim_key === 'rule:path_trailing_slash:get_v1_items:-')!;
+  assert.match(same.statement, /^A trailing slash on the path is tolerated: the response is HTTP 200 either way/);
+  resetIds();
+  const differs = rulesClaims(
+    [fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }), fakeTrial({ mutationId: 'path_trailing_slash', status: 301, body: 'moved', query: q, url: 'http://x/v1/items/' })],
+    [itemsEndpoint],
+  ).find((c) => c.claim_key === 'rule:path_trailing_slash:get_v1_items:-')!;
+  assert.match(differs.statement, /^The path with a trailing slash returns HTTP 301/);
 });

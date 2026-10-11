@@ -35,6 +35,19 @@ const PROBE_LABEL: Record<string, string> = {
   pagination_beyond: '999999999',
 };
 const VALIDATION_RULES = new Set(Object.keys(PROBE_LABEL));
+/** Boundary probes whose value depends on the spec: show the value actually sent when the probe trial recorded it. */
+const SPEC_RELATIVE: Record<string, string> = {
+  boundary_below_min: 'below the documented minimum',
+  boundary_above_max: 'just above the documented maximum',
+  boundary_far_above_max: 'far above the documented maximum',
+};
+function probeLabel(rule: string, c: ClaimView): string {
+  const rel = SPEC_RELATIVE[rule];
+  if (!rel || !c.param) return PROBE_LABEL[rule];
+  const probe = c.evidence[c.evidence.length - 1];
+  const sent = probe?.request?.query?.find(([k]) => k === c.param)?.[1];
+  return sent === undefined || sent === '' ? PROBE_LABEL[rule] : `${sent} (${rel})`;
+}
 
 function ruleOf(c: ClaimView): string | null {
   const m = c.claim_key.match(/^rule:([^:]+):/);
@@ -66,7 +79,7 @@ export function summarizeParameters(claims: ClaimView[]): ParamSummary[] {
     const s = by.get(c.param) ?? { param: c.param, rejects: [], accepts: [], observes: [] };
     by.set(c.param, s);
     if (rule && VALIDATION_RULES.has(rule)) {
-      const item = { label: PROBE_LABEL[rule], status: probeStatus(c), claim: c };
+      const item = { label: probeLabel(rule, c), status: probeStatus(c), claim: c };
       if (c.verdict === 'rejects') s.rejects.push(item);
       else if (c.verdict === 'accepts') s.accepts.push(item);
       else s.observes.push(c);
@@ -82,7 +95,7 @@ function statusGroups(items: ParamSummary['rejects']): string {
   for (const it of items) {
     const k = it.status === null ? 'no response' : `HTTP ${it.status}`;
     const cur = g.get(k) ?? { labels: [], claims: [] };
-    cur.labels.push(it.label);
+    if (!cur.labels.includes(it.label)) cur.labels.push(it.label); // boundary_zero and pagination_zero both read "0"
     cur.claims.push(it.claim);
     g.set(k, cur);
   }
@@ -168,7 +181,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   // Facts that hold on EVERY endpoint go once, at the top, not once per endpoint.
   const common = commonAcrossEndpoints(body, endpoints);
   if (common.length) {
-    lines.push('', `## Behavior common to all ${endpoints.length} endpoints`);
+    lines.push('', endpoints.length === 2 ? '## Behavior common to both endpoints' : `## Behavior common to all ${endpoints.length} endpoints`);
     for (const g of common) lines.push(`- ${g.statement} ${ev(g.claims)}`);
   }
   const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
