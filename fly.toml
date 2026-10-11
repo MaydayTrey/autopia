@@ -1,0 +1,32 @@
+# Fly.io app definition for the Autopia MCP server (HTTP).
+# Deploy:   fly launch --copy-config --no-deploy   (first time, creates the app)
+#           fly secrets set DATABASE_URL=... AUTOPIA_MCP_TOKEN=... ANTHROPIC_API_KEY=...
+#           fly deploy
+# Worker:   fly machine run . --schedule daily -e DATABASE_URL=... --command "npm run run-all"
+#           (or run `fly ssh console -C "npm run run-all"` on the app machine by hand)
+app = "autopia"
+primary_region = "iad"
+
+[build]
+
+[env]
+  AUTOPIA_LOG = "info"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

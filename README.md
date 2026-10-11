@@ -93,6 +93,49 @@ and only one process can open it at a time. Stop the worker before starting the 
 or dashboard. Set `DATABASE_URL` to a real Postgres to lift that limit (same schema, no code
 change).
 
+## Hosting: managed Postgres + the HTTP MCP server
+
+The embedded database is for one laptop. A hosted compendium uses a managed Postgres so the
+worker and the server can run at the same time, and runs the HTTP MCP server somewhere always on.
+The code path is identical: `DATABASE_URL` switches drivers, migrations apply on connect, and
+`tests/integration/postgres-path.test.ts` exercises it over the real Postgres wire protocol.
+
+**1. Database (Neon or Supabase, both include pgvector).** Create a project, copy the
+connection string, and move the existing compendium across:
+
+```bash
+npx tsx scripts/db-export.ts data/export.json
+```
+
+```bash
+DATABASE_URL="postgres://..." npx tsx scripts/db-import.ts data/export.json
+```
+
+Import preserves ids, skips rows that already exist, and resets the sequences, so it is safe
+to re-run. Put the same `DATABASE_URL` in `.env` and every command on the laptop now talks to
+the hosted database.
+
+**2. Server (Fly.io).** `fly.toml` and the `Dockerfile` are in the repo. One time:
+
+```bash
+fly launch --copy-config --no-deploy
+```
+
+```bash
+fly secrets set DATABASE_URL="postgres://..." AUTOPIA_MCP_TOKEN="$(openssl rand -hex 24)"
+```
+
+```bash
+fly deploy
+```
+
+The server listens on `/mcp` with `GET /healthz` for the platform check. With
+`AUTOPIA_MCP_TOKEN` set, every `/mcp` request needs `Authorization: Bearer <token>`; unset, the
+endpoint is open and the server logs a warning. The image also contains the worker: run it as a
+scheduled machine or by hand with `fly ssh console -C "npm run run-all"`, with
+`ANTHROPIC_API_KEY` set as a secret if the LLM pass should run there. Railway and Render work
+the same way from the same `Dockerfile`.
+
 ## CLI
 
 | Command | What it does |

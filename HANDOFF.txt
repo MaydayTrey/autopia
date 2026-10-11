@@ -242,6 +242,30 @@ PRODUCT LAYER (2026-10-12)
   PokéAPI rejects unknown params with 403; Nager ignores them).
   Suite: 67 tests (unit + integration incl. MCP stdio and HTTP).
 
+HOSTING PREP (2026-10-12): everything except the two account steps
+  Code/config in the repo:
+  - Dockerfile + .dockerignore (node:24-slim, tsx at runtime; default
+    CMD = HTTP MCP server on ; 'npm run run-all' = worker pass).
+  - fly.toml (app 'autopia', /healthz check, auto-stop machines).
+  - AUTOPIA_MCP_TOKEN bearer guard on POST /mcp (server/mcp.ts);
+    /healthz always open. Tested: tests/integration/mcp-http-auth.
+  - src/db/transfer.ts + scripts/db-export.ts / db-import.ts
+    (npm run db:export / db:import): JSON dump with ids preserved,
+    idempotent import, sequences reset. Tested PGlite -> Postgres-wire
+    in tests/integration/db-transfer.test.ts.
+  - tests/integration/postgres-path.test.ts proves the DATABASE_URL
+    branch (node-postgres driver, migrator, CREATE EXTENSION vector,
+    FTS) using PGlite behind @electric-sql/pglite-socket (dev dep).
+    No Docker needed for tests.
+  - data/export.json (gitignored) = the current compendium, 5 tools,
+    ready to import.
+  Trey must do (needs his accounts; agents must NOT create accounts
+  or enter credentials): (1) create a Neon (or Supabase) project and
+  put DATABASE_URL in .env, then 'npm run db:import -- data/export.json';
+  (2) install flyctl, 'fly auth login', then README 'Hosting' commands
+  (fly launch --copy-config --no-deploy; fly secrets set ...; fly
+  deploy). Suite: 70 tests.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

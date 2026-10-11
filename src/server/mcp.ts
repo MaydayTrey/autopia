@@ -149,7 +149,15 @@ async function main() {
       res.status(500).json({ ok: false, error: (e as Error).message });
     }
   });
+  // Optional bearer-token guard. Set AUTOPIA_MCP_TOKEN on a public deployment; unset = open.
+  const token = process.env.AUTOPIA_MCP_TOKEN?.trim();
+  if (token) log.info('mcp', 'bearer token required on /mcp');
+  else log.warn('mcp', 'AUTOPIA_MCP_TOKEN not set: /mcp is open to anyone who can reach it');
   app.post('/mcp', async (req, res) => {
+    if (token && req.headers.authorization !== `Bearer ${token}`) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
     const server = buildServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
