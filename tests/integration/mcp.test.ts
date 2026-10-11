@@ -61,7 +61,21 @@ after(async () => {
 
 test('mcp: lists the expected tools', async () => {
   const { tools } = await mcp.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_divergences', 'get_tool_knowledge', 'get_version_diff', 'list_tools', 'list_versions', 'search_claims']);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ['get_divergences', 'get_tool_docs', 'get_tool_knowledge', 'get_version_diff', 'list_tools', 'list_versions', 'search_claims']);
+});
+
+test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences first and trial ids', async () => {
+  const res = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0] } });
+  const md = (res.content as { type: string; text: string }[])[0].text;
+  assert.match(md, /^# mock-items: verified behavior/);
+  assert.match(md, /## Where behavior contradicts the spec \(\d+\)/);
+  assert.match(md, /The spec marks "q" as required, but omitting it still returns HTTP 200/);
+  assert.match(md, /### GET \/v1\/items/);
+  assert.match(md, /Parameter `limit`:/);
+  assert.match(md, /\[#\d+(, #\d+)*\]/, 'every line cites trial ids');
+  assert.ok(md.indexOf('## Where behavior contradicts the spec') < md.indexOf('## Endpoint behavior'), 'divergences come first');
+  const missing = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'nope' } });
+  assert.equal(missing.isError, true);
 });
 
 test('mcp: list_tools / list_versions', async () => {

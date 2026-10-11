@@ -220,6 +220,28 @@ FIFTH TARGET: Nager.Date public holidays (targets/nager-date.json, reference-dat
   vs PokéAPI (Nager ignores unknown query params; PokéAPI rejects).
   First sibling comparison in reference-data works.
 
+PRODUCT LAYER (2026-10-12)
+  Trey's framing: agents fetch the empirical docs for a tool they are
+  about to use, over MCP. What exists now:
+  - get_tool_docs MCP tool (+ CLI 'docs <tool>', + dashboard
+    GET /api/tools/<tool>/docs): Markdown behavior sheet rendered
+    from verified claims by src/db/docs.ts. Spec contradictions
+    first, then sibling differences, undocumented rules, then per-
+    endpoint behavior by parameter; every line cites trial ids.
+  - MCP over Streamable HTTP: 'npm run mcp:http' (port 4200,
+    POST /mcp, GET /healthz; stateless, one transport per request).
+    stdio remains the default. Tested in tests/integration/mcp-http.
+  - 'npm run run-all': runs every targets/*.json sequentially, one
+    summary line each, exit 1 on any failure. New spec hash -> new
+    version -> automatic diff. Schedule with Task Scheduler / cron /
+    a hosted job (README 'Keeping it current').
+  STILL MISSING for a hosted product: managed Postgres (DATABASE_URL)
+  so worker + server can run at once; deploy the HTTP server; a
+  scheduler in the host; auth on the HTTP endpoint if public.
+  PokéAPI run #22 now carries sibling notes vs Nager.Date (6 claims:
+  PokéAPI rejects unknown params with 403; Nager ignores them).
+  Suite: 67 tests (unit + integration incl. MCP stdio and HTTP).
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

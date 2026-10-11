@@ -59,12 +59,34 @@ Without a key the pipeline runs rules-only and says so.
 
 ```bash
 npm run mcp          # MCP server over stdio (register in Claude Code / any MCP client)
+npm run mcp:http     # the same server over Streamable HTTP at http://localhost:4200/mcp
 npm run dashboard    # read-only dashboard at http://localhost:4100
 ```
 
-Register the MCP server with a client as `npx tsx <repo>/src/server/mcp.ts`.
+Register the stdio server with a client as `npx tsx <repo>/src/server/mcp.ts`, or point an
+HTTP-capable client at `/mcp` on the HTTP server (`GET /healthz` for liveness).
 Tools: `list_tools`, `list_versions`, `get_tool_knowledge`, `get_divergences`,
-`search_claims`, `get_version_diff`. Every response carries the evidence trials.
+`search_claims`, `get_version_diff`, and `get_tool_docs`, which returns a Markdown behavior
+sheet generated from the verified claims (spec contradictions first, then sibling
+differences, undocumented rules, per-endpoint behavior), every line citing its trial ids.
+The same sheet is `npm run autopia -- docs <tool>` and `GET /api/tools/<tool>/docs` on the
+dashboard. Every response carries the evidence trials.
+
+### Keeping it current (automation)
+
+```bash
+npm run run-all      # run every targets/*.json in sequence, one summary line per tool
+```
+
+`run-all` re-fetches each spec, creates a new tool version when the spec hash changes,
+re-exercises, re-verifies, and computes the diff against the previous version automatically.
+It exits non-zero if any target fails. Schedule it with whatever you already have:
+
+- Windows: Task Scheduler, action `npm run run-all` in the repo folder.
+- Linux/macOS: a cron line such as `0 3 * * * cd /path/to/autopia && npm run run-all >> runs.log`.
+- Hosted: the same command as a scheduled job on Fly.io, Railway, or Render, with
+  `DATABASE_URL` pointing at a managed Postgres so the MCP server can stay up while the
+  worker runs (the embedded database allows only one process at a time).
 
 **PGlite caveat:** the default database is an embedded Postgres (PGlite) under `data/pglite`
 and only one process can open it at a time. Stop the worker before starting the MCP server

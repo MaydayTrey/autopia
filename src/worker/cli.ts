@@ -27,6 +27,9 @@ import { extractEndpoints, fetchSpecText, parseSpecText } from './spec.js';
 import { loadTarget, selectEndpoints } from './target.js';
 import { latestClaimsForVersion } from './diff.js';
 import { loadEnv } from './env.js';
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { renderToolDocs } from '../db/docs.js';
 
 loadEnv();
 
@@ -160,8 +163,43 @@ async function main() {
       }
       break;
     }
+    case 'run-all': {
+      // Automation entry point: run every target in targets/ (or the given directory) one after
+      // another (one database process) and print a one-line summary per tool. Exit code 1 if any
+      // run failed. Schedule this with the OS scheduler or any cron-style runner.
+      const dir = args[0] ?? 'targets';
+      const files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort();
+      const llm = values.llm ? adapterFromEnv() : null;
+      const db = await getDb();
+      const rows: string[] = [];
+      let failed = 0;
+      for (const f of files) {
+        try {
+          const target = await loadTarget(path.join(dir, f));
+          const s = await runPipeline(db, target, { llm, reproduce: values.reproduce });
+          const diff = s.diff ? `  diff vs #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}` : '';
+          rows.push(`${s.toolName.padEnd(26)} run #${String(s.testRunId).padEnd(4)} ${s.isNewVersion ? 'NEW VERSION ' : 'same version'}  trials ${String(s.trials).padStart(4)}  verified ${String(s.verified.length).padStart(4)}  rejected ${String(s.rejected.length).padStart(3)}  divergences ${String(s.divergences).padStart(3)}${diff}`);
+        } catch (e) {
+          failed++;
+          rows.push(`${f.padEnd(26)} FAILED: ${(e as Error).message}`);
+          log.error('run-all', `${f}: ${(e as Error).message}`);
+        }
+      }
+      out('');
+      out(`RUN-ALL ${new Date().toISOString()}  ${files.length} target(s), ${failed} failed`);
+      for (const r of rows) out('  ' + r);
+      if (failed) process.exitCode = 1;
+      break;
+    }
+    case 'docs': {
+      const db = await getDb();
+      const md = await renderToolDocs(db, need(args[0], 'tool name'), values.version ? Number(values.version) : null);
+      if (!md) throw new Error('no such tool');
+      out(md);
+      break;
+    }
     default:
-      out('usage: autopia <run|plan|tools|versions|runs|claims|search|diff|trial|compare-runs> ...  (see src/worker/cli.ts)');
+      out('usage: autopia <run|run-all|plan|tools|versions|runs|claims|docs|search|diff|trial|compare-runs> ...  (see src/worker/cli.ts)');
       process.exitCode = 1;
   }
 }

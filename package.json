@@ -10,6 +10,8 @@
   "scripts": {
     "autopia": "tsx src/worker/cli.ts",
     "mcp": "tsx src/server/mcp.ts",
+    "mcp:http": "tsx src/server/mcp.ts --http",
+    "run-all": "tsx src/worker/cli.ts run-all",
     "dashboard": "tsx src/dashboard/server.ts",
     "spike": "tsx scripts/m0-spike.ts",
     "typecheck": "tsc --noEmit",

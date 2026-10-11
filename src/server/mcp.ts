@@ -14,8 +14,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
 import { listTools, listVersions, resolveTool, searchClaims, toolKnowledge, versionDiff } from '../db/queries.js';
+import { renderToolDocs } from '../db/docs.js';
 import { loadEnv } from '../worker/env.js';
 import { log } from '../worker/log.js';
 
@@ -82,6 +84,19 @@ export function buildServer(): McpServer {
   );
 
   server.registerTool(
+    'get_tool_docs',
+    {
+      title: 'Get tool docs',
+      description: 'A Markdown behavior sheet for a tool, generated from verified claims: spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior. Each line cites the trial ids that back it. Use this when you are about to call the tool and want its real behavior in one read.',
+      inputSchema: { tool: z.string(), version: z.number().int().optional() },
+    },
+    async ({ tool, version }) => {
+      const md = await renderToolDocs(await getDb(), tool, version ?? null);
+      return md ? { content: [{ type: 'text' as const, text: md }] } : fail(`no such tool: ${tool}`);
+    },
+  );
+
+  server.registerTool(
     'get_version_diff',
     {
       title: 'Get version diff',
@@ -97,19 +112,65 @@ export function buildServer(): McpServer {
   return server;
 }
 
+/**
+ * Two transports:
+ *   default        stdio: a client launches this process locally.
+ *   --http [port]  Streamable HTTP at POST /mcp (stateless: one transport per request),
+ *                  for agents elsewhere. Default port 4200, or AUTOPIA_MCP_PORT.
+ */
 async function main() {
-  const server = buildServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  log.info('mcp', 'autopia MCP server ready on stdio');
-  const shutdown = async () => {
-    await server.close().catch(() => undefined);
-    await closeDb();
-    process.exit(0);
-  };
+  const httpIdx = process.argv.indexOf('--http');
+  if (httpIdx === -1) {
+    const server = buildServer();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    log.info('mcp', 'autopia MCP server ready on stdio');
+    const shutdown = async () => {
+      await server.close().catch(() => undefined);
+      await closeDb();
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.stdin.on('close', shutdown);
+    return;
+  }
+
+  const port = Number(process.argv[httpIdx + 1] ?? process.env.AUTOPIA_MCP_PORT ?? 4200);
+  const { default: express } = await import('express');
+  const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.get('/healthz', async (_req, res) => {
+    try {
+      await getDb();
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+  app.post('/mcp', async (req, res) => {
+    const server = buildServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => {
+      transport.close().catch(() => undefined);
+      server.close().catch(() => undefined);
+    });
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (e) {
+      log.error('mcp', `request failed: ${(e as Error).message}`);
+      if (!res.headersSent) res.status(500).json({ error: 'internal error' });
+    }
+  });
+  const methodNotAllowed = (_req: Request, res: Response) => res.status(405).json({ error: 'stateless server: use POST /mcp' });
+  app.get('/mcp', methodNotAllowed);
+  app.delete('/mcp', methodNotAllowed);
+  const listener = app.listen(port, () => log.info('mcp', `autopia MCP server ready at http://localhost:${port}/mcp`));
+  const shutdown = () => listener.close(() => closeDb().then(() => process.exit(0)));
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  process.stdin.on('close', shutdown);
 }
 
 const isMain = process.argv[1] && /mcp\.(ts|js)$/.test(process.argv[1]);

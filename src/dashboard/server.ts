@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { closeDb, getDb } from '../db/client.js';
 import { listTools, listVersions, resolveTool, runsForTool, searchClaims, toolKnowledge, trialById, versionDiff } from '../db/queries.js';
+import { renderToolDocs } from '../db/docs.js';
 import { loadEnv } from '../worker/env.js';
 import { log } from '../worker/log.js';
 
@@ -40,6 +41,15 @@ app.get('/api/tools/:name/runs', wrap(async (req) => {
 app.get('/api/tools/:name/claims', wrap(async (req) => toolKnowledge(await getDb(), String(req.params.name), req.query.version ? Number(req.query.version) : null, req.query.divergences === '1')));
 app.get('/api/tools/:name/diff', wrap(async (req) => versionDiff(await getDb(), String(req.params.name), Number(req.query.from), Number(req.query.to))));
 app.get('/api/search', wrap(async (req) => searchClaims(await getDb(), String(req.query.q ?? ''), req.query.tool ? String(req.query.tool) : null)));
+app.get('/api/tools/:name/docs', async (req, res) => {
+  try {
+    const md = await renderToolDocs(await getDb(), String(req.params.name), req.query.version ? Number(req.query.version) : null);
+    if (!md) res.status(404).type('text/plain').send('not found');
+    else res.type('text/markdown').send(md);
+  } catch (e) {
+    res.status(500).type('text/plain').send((e as Error).message);
+  }
+});
 app.get('/api/trials/:id', wrap(async (req) => trialById(await getDb(), Number(String(req.params.id)))));
 app.use(express.static(path.join(here, 'public')));
 
