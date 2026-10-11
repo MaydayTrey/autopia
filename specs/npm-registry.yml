@@ -1,0 +1,84 @@
+# Hand-authored by the Autopia project: npm publishes no OpenAPI document for its registry.
+# This describes the READ endpoints as documented at
+# https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md and the search endpoint docs.
+# Divergences reported against this file mean "the registry disagrees with that description".
+openapi: 3.1.0
+info:
+  title: npm registry (community description)
+  version: '2026-10-12'
+  description: Read-only endpoints of registry.npmjs.org, described from npm's public documentation.
+servers:
+  - url: https://registry.npmjs.org
+paths:
+  /{package}:
+    get:
+      operationId: getPackument
+      summary: Full package document (all versions, dist-tags, time)
+      parameters:
+        - name: package
+          in: path
+          required: true
+          schema: { type: string }
+          example: express
+      responses:
+        '200': { description: packument }
+        '404': { description: package not found }
+  /{package}/{version}:
+    get:
+      operationId: getPackageVersion
+      summary: One version's manifest; `latest` and other dist-tags are accepted as the version
+      parameters:
+        - name: package
+          in: path
+          required: true
+          schema: { type: string }
+          example: express
+        - name: version
+          in: path
+          required: true
+          schema: { type: string }
+          example: latest
+      responses:
+        '200': { description: version manifest }
+        '404': { description: not found }
+  /-/package/{package}/dist-tags:
+    get:
+      operationId: getDistTags
+      summary: Dist-tags for a package (latest, next, ...)
+      parameters:
+        - name: package
+          in: path
+          required: true
+          schema: { type: string }
+          example: express
+      responses:
+        '200': { description: tag -> version map }
+  /-/v1/search:
+    get:
+      operationId: search
+      summary: Package search
+      parameters:
+        - name: text
+          in: query
+          required: true
+          description: full-text search terms; supports qualifiers like `author:` and `keywords:`
+          schema: { type: string }
+        - name: size
+          in: query
+          description: how many results to return
+          schema: { type: integer, minimum: 1, maximum: 250, default: 20 }
+        - name: from
+          in: query
+          description: offset to return results from
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: quality
+          in: query
+          schema: { type: number, minimum: 0, maximum: 1 }
+        - name: popularity
+          in: query
+          schema: { type: number, minimum: 0, maximum: 1 }
+        - name: maintenance
+          in: query
+          schema: { type: number, minimum: 0, maximum: 1 }
+      responses:
+        '200': { description: '{ objects, total, time }' }

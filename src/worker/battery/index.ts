@@ -21,7 +21,7 @@ import { sha256 } from '../spec.js';
 import type { TrialInput } from '../http.js';
 import type { TargetConfig } from '../target.js';
 
-export const BATTERY_VERSION = '1.2.1';
+export const BATTERY_VERSION = '1.3.0';
 
 export const MUTATION_TYPES = [
   'baseline',
@@ -46,6 +46,10 @@ export const MUTATION_TYPES = [
   'pagination_zero',
   'pagination_huge',
   'pagination_beyond',
+  'datetime_date_only',
+  'datetime_no_tz',
+  'datetime_epoch',
+  'datetime_invalid',
   'wrong_content_type',
   'path_trailing_slash',
   'method_head',
@@ -67,8 +71,22 @@ export function batteryHash(): string {
 
 const AUTH_PARAM = /^(api[-_]?key|apikey|key|token|access[-_]?token|auth)$/i;
 const PAGINATION_PARAM = /^(page|limit|per[-_]?page|page[-_]?size|offset|count|page_number)$/i;
+const DATETIME_PARAM = /^(since|until|from|to|start|end|start_date|end_date|date|before|after|updated_since|created_since|time|timestamp)$/i;
 const LONG_STRING = 'x'.repeat(2048);
 const INVALID_CREDENTIAL = 'invalid-key-autopia';
+
+/**
+ * An invalid credential that keeps the ORIGINAL scheme, so the API's auth
+ * layer actually evaluates it: "Bearer bad" is rejected by GitHub; a bare
+ * "bad" is a malformed header it silently ignores (then the probe "proves"
+ * credentials are not validated, which is false).
+ */
+export function invalidCredentialLike(original: string | undefined): string {
+  const m = original?.match(/^(Bearer|Basic|Token|token|Bot|ApiKey|Digest)\s+/i);
+  if (!m) return INVALID_CREDENTIAL;
+  const scheme = m[1];
+  return /^basic$/i.test(scheme) ? `${scheme} ${Buffer.from('invalid:invalid-key-autopia').toString('base64')}` : `${scheme} ${INVALID_CREDENTIAL}`;
+}
 
 /** Deterministic valid-looking value for a parameter. Override > example > default > enum > type. */
 export function valueFor(p: ParamSpec, override?: string): string {
@@ -193,6 +211,13 @@ function paramProbes(p: ParamSpec): { type: MutationType; description: string; v
     }
   }
   if (p.type === 'string' && !p.enum) out.push({ type: 'boundary_long_string', description: `Send a 2048-character string for ${p.name}`, value: LONG_STRING });
+  // Date/time parameters: which formats does the API actually take? (docs usually say "ISO 8601" and stop there)
+  if (p.type === 'string' && !p.enum && (p.format === 'date-time' || p.format === 'date' || DATETIME_PARAM.test(p.name))) {
+    out.push({ type: 'datetime_date_only', description: `Send a date without a time (2026-01-15) for ${p.name}`, value: '2026-01-15' });
+    out.push({ type: 'datetime_no_tz', description: `Send an ISO date-time without a timezone designator for ${p.name}`, value: '2026-01-15T12:00:00' });
+    out.push({ type: 'datetime_epoch', description: `Send a Unix epoch (seconds) for ${p.name}`, value: '1768478400' });
+    out.push({ type: 'datetime_invalid', description: `Send a non-date string for ${p.name}`, value: 'not-a-date' });
+  }
   return out;
 }
 
@@ -256,7 +281,7 @@ export function planTrials(ep: EndpointSpec, target: TargetConfig): Mutation[] {
       if (b.input.query.some(([k]) => k === s.name)) add('no_auth', s.name, `Omit auth parameter ${s.name}`, 'baseline', withInput(b.input, { query: without(b.input.query, s.name) }));
     } else {
       const key = s.name.toLowerCase();
-      add('bad_auth', s.name, `Send an invalid value in auth header ${s.name}`, 'baseline', withInput(b.input, { headers: { ...b.input.headers, [key]: INVALID_CREDENTIAL } }));
+      add('bad_auth', s.name, `Send an invalid value in auth header ${s.name}`, 'baseline', withInput(b.input, { headers: { ...b.input.headers, [key]: invalidCredentialLike(b.input.headers[key]) } }));
       // '' tells the executor to send NO such header (it also strips its own default User-Agent).
       add('no_auth', s.name, `Omit auth header ${s.name}`, 'baseline', withInput(b.input, { headers: { ...b.input.headers, [key]: '' } }));
     }
@@ -268,7 +293,7 @@ export function planTrials(ep: EndpointSpec, target: TargetConfig): Mutation[] {
     const authHeaders = Object.keys(b.input.headers).filter((h) => /auth|api[-_]?key|token/i.test(h));
     if (authHeaders.length) {
       const headers = { ...b.input.headers };
-      for (const h of authHeaders) headers[h] = INVALID_CREDENTIAL;
+      for (const h of authHeaders) headers[h] = invalidCredentialLike(headers[h]);
       add('bad_auth', authHeaders[0], `Send an invalid value in auth header ${authHeaders[0]}`, 'baseline', withInput(b.input, { headers }));
       const missing = { ...b.input.headers };
       for (const h of authHeaders) missing[h] = '';

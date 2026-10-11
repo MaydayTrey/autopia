@@ -139,6 +139,42 @@ export function toTrialRef(t: Trial): TrialRef {
   };
 }
 
+/** Evidence as an agent needs it: one short line per trial, no response bodies. */
+export interface CompactTrialRef {
+  id: number;
+  probe: string;
+  param: string | null;
+  status: number | null;
+  request: string; // "GET https://host/path?query" (query truncated)
+}
+
+export function compactTrial(t: TrialRef): CompactTrialRef {
+  const q = t.request.query?.length ? '?' + t.request.query.map(([k, v]) => `${k}=${v.length > 40 ? v.slice(0, 37) + '...' : v}`).join('&') : '';
+  const line = `${t.request.method} ${t.request.url}${q}`;
+  return { id: t.id, probe: t.mutation_id, param: t.param, status: t.status, request: line.length > 240 ? line.slice(0, 237) + '...' : line };
+}
+
+export type CompactClaimView = Omit<ClaimView, 'evidence'> & { evidence: CompactTrialRef[] };
+
+export function compactClaim(c: ClaimView): CompactClaimView {
+  return { ...c, evidence: c.evidence.map(compactTrial) };
+}
+
+/** Closest existing tool names, for "no such tool" errors. */
+export async function suggestTools(db: Db, name: string, max = 3): Promise<string[]> {
+  const names = (await db.select({ n: schema.tools.name }).from(schema.tools)).map((r) => r.n);
+  const q = name.toLowerCase();
+  const scored = names
+    .map((n) => {
+      const l = n.toLowerCase();
+      const score = l === q ? 0 : l.includes(q) || q.includes(l) ? 1 : l.split(/[-_]/).some((part) => q.includes(part) && part.length >= 3) ? 2 : 9;
+      return { n, score };
+    })
+    .filter((s) => s.score < 9)
+    .sort((a, b) => a.score - b.score || a.n.localeCompare(b.n));
+  return scored.slice(0, max).map((s) => s.n);
+}
+
 export async function withEvidence(db: Db, claims: Claim[]): Promise<ClaimView[]> {
   const ids = [...new Set(claims.flatMap((c) => c.evidenceTrialIds))];
   const trials = await trialsByIds(db, ids);

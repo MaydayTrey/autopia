@@ -20,6 +20,11 @@ test('redactInput replaces credential VALUES by name, leaves everything else, ke
   assert.equal(r.headers['x-nothing'], '', 'an explicit empty header stays empty (it means "send none")');
   assert.deepEqual(input.query[1], ['api_key', 'sk-live-123'], 'the original is not mutated');
   assert.ok(!JSON.stringify(r).includes('sk-live-123') && !JSON.stringify(r).includes('t0k') && !JSON.stringify(r).includes('real-key'));
+  // the battery's fake credential stays visible, so a bad_auth probe is not 'restored' into a valid one at verify time
+  const probe = redactInput({ ...input, headers: { 'x-api-key': 'invalid-key-autopia', authorization: 'Bearer invalid-key-autopia' }, query: [['api_key', 'invalid-key-autopia']] });
+  assert.equal(probe.headers['x-api-key'], 'invalid-key-autopia');
+  assert.equal(probe.headers.authorization, 'Bearer invalid-key-autopia');
+  assert.deepEqual(probe.query, [['api_key', 'invalid-key-autopia']]);
 });
 
 test('secretsOf collects credentials from target headers and known-good values; restoreInput puts them back', () => {

@@ -89,14 +89,38 @@ test('mcp: list_tools / list_versions', async () => {
   assert.deepEqual(versions.map((v: { id: number }) => v.id).sort(), [...versionIds].sort());
 });
 
-test('mcp: get_tool_knowledge returns verified claims with evidence; get_divergences only divergences', async () => {
-  const k = parse(await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'mock-items', version: versionIds[0] } }));
-  assert.ok(k.claims.length > 10);
-  assert.ok(k.claims.every((c: { verified: boolean; evidence: unknown[] }) => c.verified && c.evidence.length >= 1));
+test('mcp: get_tool_knowledge is paginated with compact evidence; get_divergences only divergences; verbose adds previews', async () => {
+  const k = parse(await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'mock-items', version: versionIds[0], limit: 5 } }));
+  assert.equal(k.returned, 5);
+  assert.ok(k.total > 10);
+  assert.equal(k.claims.length, 5);
+  assert.ok(k.counts_by_kind.error_behavior >= 1);
+  for (const c of k.claims as { verified: boolean; evidence: Record<string, unknown>[] }[]) {
+    assert.ok(c.verified && c.evidence.length >= 1);
+    for (const e of c.evidence) {
+      assert.deepEqual(Object.keys(e).sort(), ['id', 'param', 'probe', 'request', 'status'], 'compact evidence: no bodies, no header maps');
+      assert.match(String(e.request), /^GET http/);
+    }
+  }
+  const page2 = parse(await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'mock-items', version: versionIds[0], limit: 5, offset: 5 } }));
+  assert.notDeepEqual(page2.claims.map((c: { id: number }) => c.id), k.claims.map((c: { id: number }) => c.id));
+  const onlyAuth = parse(await mcp.callTool({ name: 'get_tool_knowledge', arguments: { tool: 'mock-items', version: versionIds[0], kind: 'error_behavior' } }));
+  assert.ok(onlyAuth.claims.every((c: { kind: string }) => c.kind === 'error_behavior'));
+
   const d = parse(await mcp.callTool({ name: 'get_divergences', arguments: { tool: 'mock-items', version: versionIds[0] } }));
   assert.ok(d.claims.length >= 3);
   assert.ok(d.claims.every((c: { diverges_from_spec: boolean }) => c.diverges_from_spec));
   assert.ok(d.claims.some((c: { claim_key: string }) => c.claim_key === 'rule:required_omitted:get_v1_items:q'));
+  const compactSize = JSON.stringify(d).length;
+  const v = parse(await mcp.callTool({ name: 'get_divergences', arguments: { tool: 'mock-items', version: versionIds[0], verbose: true } }));
+  assert.ok('response_preview' in v.claims[0].evidence[0], 'verbose carries previews');
+  assert.ok(JSON.stringify(v).length > compactSize, 'and is larger');
+});
+
+test('mcp: an unknown tool name gets a suggestion', async () => {
+  const res = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock' } });
+  assert.equal(res.isError, true);
+  assert.match((res.content as { text: string }[])[0].text, /Did you mean \\"mock-items\\"/);
 });
 
 test('mcp: search_claims answers a usage question', async () => {

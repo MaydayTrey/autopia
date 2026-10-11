@@ -20,5 +20,6 @@ jobs:
       - run: npm run run-all -- --no-llm --prune-days 14
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # built-in Actions token: lets targets/github.json re-verify nightly (1,000 req/h)
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # built-in Actions token: lets targets/github-rest.json re-verify nightly (1,000 req/h)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # for targets/anthropic-api.json (read-only models endpoints), not for the LLM pass here
           AUTOPIA_LOG: info

@@ -24,11 +24,15 @@ export function isSecretParam(name: string): boolean {
   return SECRET_PARAM.test(name);
 }
 
+/** The battery's own fake credential is not a secret; redacting it would make the probe indistinguishable from the real key at reproduction time. */
+const PROBE_VALUE = /invalid-key-autopia/;
+const shouldRedact = (v: string) => v !== '' && !PROBE_VALUE.test(v);
+
 /** A copy of the input with credential VALUES replaced. Pure. */
 export function redactInput(input: TrialInput): TrialInput {
   const headers: Record<string, string> = {};
-  for (const [k, v] of Object.entries(input.headers)) headers[k] = v !== '' && isSecretHeader(k) ? REDACTED : v;
-  const query: [string, string][] = input.query.map(([k, v]) => [k, v !== '' && isSecretParam(k) ? REDACTED : v]);
+  for (const [k, v] of Object.entries(input.headers)) headers[k] = isSecretHeader(k) && shouldRedact(v) ? REDACTED : v;
+  const query: [string, string][] = input.query.map(([k, v]) => [k, isSecretParam(k) && shouldRedact(v) ? REDACTED : v]);
   return { ...input, headers, query };
 }
 

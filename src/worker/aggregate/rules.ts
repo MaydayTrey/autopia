@@ -153,14 +153,26 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
         break;
       case 'bad_auth': {
         const where = pn ? `in "${pn}"` : 'in the auth header';
+        const tier = rateTier(t, base);
         if (rejected(t)) out.push(claim('bad_auth', ep, pn, 'auth', 'rejects', `An invalid credential ${where} is rejected with ${desc}.`, [base, t]));
-        else if (ok(t)) out.push(claim('bad_auth', ep, pn, 'auth', 'accepts', `An invalid credential ${where} is accepted (${status(t)}); its value is not validated on this endpoint.`, [base, t]));
+        else if (ok(t)) out.push(claim('bad_auth', ep, pn, 'auth', 'accepts', `An invalid credential ${where} is accepted (${status(t)})${tier ? `, served as ${tier}` : '; its value is not validated on this endpoint'}.`, [base, t]));
         break;
       }
-      case 'no_auth':
+      case 'no_auth': {
+        const tier = rateTier(t, base);
         if (rejected(t)) out.push(claim('no_auth', ep, pn, 'auth', 'rejects', `Omitting "${pn}" entirely is rejected with ${desc}; it is required to call this endpoint.`, [base, t]));
-        else if (ok(t)) out.push(claim('no_auth', ep, pn, 'auth', 'accepts', `Omitting "${pn}" entirely is accepted (${status(t)}); the documented credential is not required on this endpoint.`, [base, t]));
+        else if (ok(t)) out.push(claim('no_auth', ep, pn, 'auth', 'accepts', `Omitting "${pn}" entirely is accepted (${status(t)})${tier ? `, served as ${tier}` : '; the documented credential is not required on this endpoint'}.`, [base, t]));
         break;
+      }
+      case 'datetime_date_only':
+      case 'datetime_no_tz':
+      case 'datetime_epoch':
+      case 'datetime_invalid': {
+        const label = { datetime_date_only: 'a date without a time (2026-01-15)', datetime_no_tz: 'an ISO date-time without a timezone designator (2026-01-15T12:00:00)', datetime_epoch: 'a Unix epoch value (1768478400)', datetime_invalid: 'a non-date string' }[t.mutationType];
+        if (rejected(t)) out.push(claim(t.mutationType, ep, pn, 'type', 'rejects', `Date parameter "${pn}" rejects ${label} with ${desc}.`, [base, t]));
+        else if (ok(t)) out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}).`, [base, t]));
+        break;
+      }
       case 'pagination_zero':
       case 'pagination_huge':
       case 'pagination_beyond': {
@@ -183,6 +195,41 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
       default:
         break;
     }
+  }
+
+  // R14: list semantics, from array lengths recorded before truncation.
+  //   - per_page/limit clamping: a huge value accepted with 200 returns fewer items than asked
+  //   - a page beyond the last: 200 with an empty list rather than an error
+  //   - Link header pagination on the baseline / optional_present responses
+  const lenOf = (t: Trial): number | null => {
+    const al = (t.response as { arrayLengths?: Record<string, number> }).arrayLengths;
+    if (!al) return null;
+    if ('' in al) return al[''];
+    const vals = Object.values(al);
+    return vals.length ? Math.max(...vals) : null;
+  };
+  for (const t of all) {
+    if (!ok(t) || !t.paramName) continue;
+    const p = params.get(t.paramName);
+    const base = baseFor(t);
+    if (!base || !ok(base)) continue;
+    const n = lenOf(t);
+    if (n === null) continue;
+    if (t.mutationType === 'pagination_huge' || t.mutationType === 'boundary_far_above_max') {
+      const asked = Number(queryValue(t, t.paramName));
+      if (PAGE_SIZE_PARAM.test(t.paramName) && Number.isFinite(asked) && n > 0 && n < asked) {
+        out.push(claim('page_size_clamp', ep, t.paramName, 'pagination', 'observes', `"${t.paramName}"=${asked} returns ${n} item(s): values above ${n} are clamped${p?.maximum !== undefined ? ` (documented maximum ${p.maximum})` : ''} rather than rejected.`, [base, t]));
+      }
+    }
+    if (t.mutationType === 'pagination_beyond' && n === 0) {
+      out.push(claim('page_beyond_empty', ep, t.paramName, 'pagination', 'observes', `A page beyond the last ("${t.paramName}"=${queryValue(t, t.paramName)}) returns HTTP 200 with an empty list rather than an error.`, [base, t]));
+    }
+  }
+  const withLink = all.find((t) => ok(t) && (t.mutationId === 'baseline' || t.mutationType === 'optional_present') && (t.response as { headers?: Record<string, string> }).headers?.link);
+  if (withLink) {
+    const link = (withLink.response as { headers: Record<string, string> }).headers.link;
+    const rels = [...link.matchAll(/rel="([a-z]+)"/g)].map((m) => m[1]);
+    out.push(claim('link_header', ep, null, 'pagination', 'observes', `Paginated responses carry a Link header with rel=${rels.join(', ') || '…'}; follow it rather than computing page numbers.`, [withLink]));
   }
 
   // R15: error behavior. Do validation errors share one status + body shape?
@@ -211,6 +258,24 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
 }
 
 /** The probed value for a parameter: last query occurrence, else the substituted path value. */
+const PAGE_SIZE_PARAM = /^(limit|per[-_]?page|page[-_]?size|count|max[-_]?results|page_limit)$/i;
+
+/**
+ * What rate-limit tier a response was served at, compared with the baseline:
+ * "an unauthenticated request (x-ratelimit-limit 60 vs 5000 with the credential)".
+ * Turns an "accepted" auth claim into something a caller can trust and act on.
+ */
+function rateTier(t: Trial, base: Trial): string | null {
+  const h = (x: Trial) => (x.response as { headers?: Record<string, string> }).headers ?? {};
+  const lim = (x: Trial) => h(x)['x-ratelimit-limit'] ?? h(x)['ratelimit-limit'];
+  const probe = lim(t);
+  const baseline = lim(base);
+  if (!probe) return null;
+  if (baseline && probe !== baseline) return `a different rate-limit tier (x-ratelimit-limit ${probe} vs ${baseline} on the baseline), i.e. unauthenticated`;
+  if (baseline && probe === baseline) return `the same rate-limit tier as the baseline (x-ratelimit-limit ${probe}), i.e. the credential was still honored`;
+  return `rate-limit tier x-ratelimit-limit ${probe}`;
+}
+
 function queryValue(t: Trial, param: string | null): string {
   if (!param) return '';
   const input = t.input as { query?: [string, string][]; pathParams?: Record<string, string> };

@@ -1,5 +1,99 @@
 ====================================================================
 AUTOPIA - HANDOFF FOR THE NEXT AGENT
+====================================================================
+>>> STOPPING POINT 2026-10-12 (context exhausted mid-task). READ THIS FIRST. <<<
+
+STATE OF THE WORKING TREE AT HANDOFF
+  Committed on main up to 483fa26 (pushed). Everything after that is a
+  LOCAL COMMIT made at handoff time WITHOUT a full test run (unit suite
+  76/76 green; the full suite was interrupted). Before pushing:
+    1. npm run typecheck && npm test   (expect ~106 tests; the only
+       known-fragile one is tests/integration/mcp.test.ts 'unknown tool
+       name gets a suggestion' whose regex was just fixed to match
+       JSON-escaped quotes: /Did you mean \\"mock-items\\"/)
+    2. if green: git push origin main (Trey must say 'push').
+  What the local commit contains (all described in sections below):
+    - battery 1.3.0: scheme-preserving bad_auth, datetime probes,
+      arrayLengths on stored responses, link header kept
+    - rules: rateTier() on auth claims, page_size_clamp,
+      page_beyond_empty, link_header, datetime cases
+    - redact.ts: the battery's fake credential 'invalid-key-autopia'
+      is NO LONGER redacted (it was, and verify then 'restored' the
+      real key into bad_auth probes -> false rejections on
+      anthropic-api run #43 and wrong 'reproduced' on github run #39)
+    - docs.ts: common-to-all-endpoints section, padding dropped
+    - mcp.ts: compact evidence, pagination, 'Did you mean', tool
+      descriptions; targets renamed to <tool name>.json
+    - new: specs/{npm-registry,pypi,anthropic}.yml + targets
+      npm-registry, pypi, anthropic-api; run-all.yml passes
+      ANTHROPIC_API_KEY for the anthropic target
+    - scripts/inspect-repro.ts now loadEnv()s and takes an optional
+      tool name as argv[3]; scripts/auth-probe-check.ts <runId>
+  Background runs that may still be in flight / just finished on Neon:
+    github-rest run (#40, started 19:27 with OLD redaction: its
+    bad_auth claims will be REJECTED; that is expected), anthropic-api
+    re-run (#44, with the fix: expect 0 rejected). Check with
+    'npm run autopia -- runs <tool>'; mark any stuck 'running' rows
+    with scripts/fail-stale-runs.ts.
+  Results already in Neon from this round: pypi run #42 (50 verified,
+  0 rejected), npm-registry run #41 (80 verified, 7 divergences vs OUR
+  authored spec: search size max 250 -> 2500 accepted, quality/
+  maintenance weights unvalidated, size=0 accepted), anthropic-api
+  run #43 (49 verified, 2 false rejections explained above).
+
+IMMEDIATE NEXT STEPS (in order)
+  1. Full suite -> push (above).
+  2. Re-run github-rest with GITHUB_TOKEN (User env var on Trey's
+     machine; read it with the powershell one-liner in the GITHUB
+     section) and confirm: bad_auth now 401 'Bad credentials', auth
+     claims state the rate-limit tier, and the new semantic claims
+     (per_page clamp to 100, empty last page, Link header, since
+     formats) appear. That run is the judgment on whether the semantic
+     battery earns its keep (Trey's agent: type-fuzzing is low signal
+     on lenient APIs; ~5 of 259 claims were actionable).
+  3. Read the three new sheets (docs npm-registry / pypi /
+     anthropic-api) for padding and wrong wording.
+
+NEXT PHASE: ADOPTION / DISCOVERY (Trey's agent, 2026-10-12, verbatim
+  gist: 'an agent would not know to check Autopia before calling an
+  API; it called it only because it was told to'). Ranked levers:
+  1. A Claude Code PLUGIN with a PreToolUse hook on Bash/WebFetch that
+     matches a request URL to a known compendium host and injects the
+     behavior sheet into the tool result. Deterministic; the only
+     mechanism that fires every time. (Trey's agent, lever #1.)
+  2. ERROR PATH: a PostToolUse hook on non-2xx API responses (or an
+     instructions line: 'on an unexpected 4xx from an API, call
+     search_claims for it'). Most of the value at a fraction of calls.
+  3. MCP SERVER INSTRUCTIONS BLOCK (currently EMPTY) + tool
+     descriptions written for the moment of use: 'Before your first
+     call to any HTTP API in a session, run get_tool_docs with its
+     host.' Copy the shape of the claude-api skill's TRIGGER/SKIP
+     sections. McpServer({ name, version }, { instructions }) in
+     src/server/mcp.ts buildServer().
+  4. A SKILL (SKILL.md) triggered on 'curl, fetch, SDK call, calling an
+     API, integrating with <host>' that tells the agent to consult the
+     compendium; independent of MCP being connected.
+  5. PUBLIC HTML PAGES per tool (indexable), so agents web-searching an
+     error string ('Validation Failed issue_field_values') land on a
+     page citing trials. Needs the dashboard/docs rendered as static
+     HTML with evidence, not only MCP.
+  6. Memory (slow, per user). Nothing to build.
+  Also from that analysis - which APIs matter: package registries
+  (DONE: npm, pypi; add crates.io - it publishes an OpenAPI spec at
+  https://crates.io/api/openapi.json - Docker Hub, Go proxy), GitHub
+  deeper (pulls, checks, actions runs, contents, code search, and the
+  WRITE side against a scratch repo), LLM provider APIs (Anthropic
+  /v1/messages etc. need a JSON-BODY BATTERY: new executor path for
+  POST with bodies, not built), then SaaS behind MCP (Slack, Notion,
+  Linear, Jira, Google, Stripe test mode, HubSpot, Shopify), then
+  infra (Cloudflare, Vercel, Fly, Supabase, AWS S3/Lambda). The
+  battery matters more than the list: pagination exhaustion/
+  consistency, rate-limit buckets + 403 vs 429 + Retry-After honesty,
+  error body shape per status, eventual consistency after writes,
+  date/timezone on filters, undocumented required formats.
+  Versioning becomes the differentiator once a real spec changes;
+  every tool still has ONE version, so get_version_diff is dormant.
+
 Read this first. Updated: 2026-10-11 (MVP COMPLETE: M0-M6 built and tested)
 ====================================================================
 
@@ -436,7 +530,7 @@ PRODUCT DIRECTION AGREED 2026-10-12 (Trey), in this order:
        credential headers from stored trial inputs (today target
        headers are copied into every trial row).
 
-GITHUB TARGET (2026-10-12): targets/github.json = first KEYED file
+GITHUB TARGET (2026-10-12): targets/github-rest.json = first KEYED file
   target, SERVER tier. headers.authorization = 'Bearer '
   (env expansion, see redact.ts); locally Trey sets GITHUB_TOKEN (a
   fine-grained PAT, public-repo read only); on GitHub Actions the
@@ -462,8 +556,42 @@ GITHUB TARGET (2026-10-12): targets/github.json = first KEYED file
   divergences: per_page/page accept 'abc' and sort/order/direction
   accept undocumented enum values on issues/commits/releases/search.
   The backoff fired once in verify (waited 34s, then reproduced).
+  Agent feedback on the sheet (2026-10-12): get_divergences returned
+  ~936K chars because every claim carried full evidence incl. response
+  previews. Fixed: MCP responses now use COMPACT evidence (id, probe,
+  param, status, one request line) unless verbose=true; get_tool_
+  knowledge is paginated (limit default 100, offset, kind filter,
+  counts_by_kind); unknown tool names get 'Did you mean ...' from
+  suggestTools(). CONVENTION: target filename = tool name
+  (targets/<name>.json); run-all warns on mismatch.
   Contributor tier remains the route for APIs whose token cannot live
   in Actions secrets.
+
+SECOND SHEET FEEDBACK ROUND (2026-10-12), from Trey's agent on github-rest:
+  (a) 'omit auth accepted' + a 5000 limit looked like a token leak.
+      Checked the stored x-ratelimit-limit on every auth probe: no_auth
+      trials were served at 60 (unauthenticated) - no leak. BUT the
+      bad_auth probe sent 'Authorization: invalid-key-autopia' with NO
+      scheme, which GitHub ignores as malformed -> 200 at 60, so the
+      'invalid credential accepted' claims were a BATTERY BUG. Fix:
+      invalidCredentialLike() keeps the scheme ('Bearer invalid-...').
+      Auth claims now state the rate-limit tier (rateTier()).
+  (b) Type-fuzzing is low signal on lenient APIs. Added semantic probes
+      (battery 1.3.0): datetime_date_only/no_tz/epoch/invalid for
+      date-time params; arrayLengths recorded on every stored response
+      (exercise.ts) so rules can see list sizes; new rules:
+      page_size_clamp, page_beyond_empty, link_header. 'link',
+      x-total-count headers kept.
+  (c) Sheet padding: docs.ts now hoists behavior common to ALL
+      endpoints into one section, drops negative shape lines ('no
+      nulls', 'no pagination fields', plain JSON content-type).
+  (d) MCP payloads: compact evidence + pagination (see above).
+  THREE NEW TARGETS (hand-authored specs in specs/): npm-registry,
+  pypi (package-registry), anthropic-api (llm-provider; GET models
+  endpoints only, x-api-key from ANTHROPIC_API_KEY, now also passed to
+  the nightly workflow). POST /v1/messages needs a JSON-body battery:
+  NOT built; that is the next battery expansion if LLM-provider
+  behavior is wanted.
 
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.

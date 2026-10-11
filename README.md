@@ -260,6 +260,11 @@ Create `targets/<name>.json`:
 }
 ```
 
+A target may point at a spec file in the repo instead of a URL. `specs/` holds hand-authored
+OpenAPI descriptions for APIs that publish none (npm registry, PyPI, the Claude API models
+endpoints); divergences reported against those mean "the API disagrees with our description",
+and the file header says so.
+
 Scope rule (v1): public, read-only, OpenAPI 3.x, no auth beyond a simple key. If a target
 lacks a formal spec or has side effects, it is out of scope; `discover` stops with an error.
 

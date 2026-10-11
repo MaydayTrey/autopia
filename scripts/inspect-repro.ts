@@ -4,6 +4,8 @@ import { runOne } from '../src/worker/exercise.js';
 import { describeSignature, signaturesEqual } from '../src/worker/signature.js';
 import { canonicalJson } from '../src/worker/spec.js';
 import type { TrialInput } from '../src/worker/http.js';
+import { loadEnv } from '../src/worker/env.js';
+loadEnv();
 const db = await getDb();
 for (const id of (process.argv[2] ?? '1218,1219,1265').split(',').map(Number)) {
   const t = await trialById(db, id);
@@ -19,7 +21,7 @@ for (const id of (process.argv[2] ?? '1218,1219,1265').split(',').map(Number)) {
   }
   await new Promise((r) => setTimeout(r, 400));
 }
-const k = await toolKnowledge(db, 'nws-weather-gov');
+const k = process.argv[3] ? await toolKnowledge(db, process.argv[3]) : null;
 console.log('\n=== stored auth claims (run', k?.run_id, ')');
 for (const c of k?.claims.filter((c) => c.kind === 'auth') ?? []) console.log(' ', c.endpoint, '::', c.statement);
 await closeDb();

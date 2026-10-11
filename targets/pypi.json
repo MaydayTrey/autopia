@@ -1,0 +1,16 @@
+{
+  "name": "pypi",
+  "category": "package-registry",
+  "spec_url": "specs/pypi.yml",
+  "baseline": {
+    "/pypi/{project}/json": { "project": "requests" },
+    "/pypi/{project}/{version}/json": { "project": "requests", "version": "2.31.0" },
+    "/simple/{project}/": { "project": "requests" }
+  },
+  "headers": {
+    "user-agent": "autopia/0.1 (read-only API behavior research; github.com/MaydayTrey/autopia)",
+    "accept": "application/vnd.pypi.simple.v1+json, application/json;q=0.9, */*;q=0.1"
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 400 },
+  "max_trials": 300
+}

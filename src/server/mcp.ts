@@ -21,7 +21,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
-import { listTools, listVersions, resolveTool, searchClaims, toolKnowledge, versionDiff } from '../db/queries.js';
+import { compactClaim, listTools, listVersions, resolveTool, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
@@ -67,38 +67,60 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     }) as never);
   };
 
-  tool('list_tools', { title: 'List tools', description: 'Catalogue of tools (APIs) in the compendium with version and verified-claim counts.', inputSchema: {} }, async () => text(await listTools(await getDb())));
+  /** "no such tool" with the closest existing names, so a caller guessing from a filename is redirected. */
+  const noSuchTool = async (name: string) => {
+    const s = await suggestTools(await getDb(), name);
+    return fail(`no such tool: ${name}${s.length ? `. Did you mean ${s.map((x) => `"${x}"`).join(' or ')}?` : ''} Use list_tools for the catalogue.`);
+  };
+  /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. */
+  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose ? claims : claims.map(compactClaim));
+
+  tool('list_tools', { title: 'List tools', description: 'Catalogue of tools (APIs) in the compendium with tier, version and verified-claim counts. Tool names are what every other tool takes as `tool`.', inputSchema: {} }, async () => text(await listTools(await getDb())));
 
   tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Versions of one tool, newest first. Each version is fingerprinted by its spec hash.', inputSchema: { tool: z.string().describe('tool name, e.g. open-meteo-forecast') } }, async ({ tool }) => {
     const db = await getDb();
     const t = await resolveTool(db, tool);
-    if (!t) return fail(`no such tool: ${tool}`);
+    if (!t) return noSuchTool(tool);
     const vs = await listVersions(db, t.id);
     return text(vs.map((v) => ({ id: v.id, label: v.versionLabel, spec_url: v.specUrl, spec_hash: v.specHash, discovered_at: v.discoveredAt })));
   });
 
-  tool<{ tool: string; version?: number }>(
+  tool<{ tool: string; version?: number; kind?: string; limit?: number; offset?: number; verbose?: boolean }>(
     'get_tool_knowledge',
-    { title: 'Get tool knowledge', description: 'All VERIFIED behavioral claims for a tool (latest version by default), grouped by kind, divergences from the spec flagged, each with its evidence trials.', inputSchema: { tool: z.string(), version: z.number().int().optional().describe('tool_version id; default latest') } },
-    async ({ tool, version }) => {
+    {
+      title: 'Get tool knowledge',
+      description: 'VERIFIED behavioral claims for a tool (latest version by default), paginated, divergences from the spec flagged, each with compact evidence (trial id, probe, status, request line). Filter by kind; set verbose=true for response previews. For a one-read summary prefer get_tool_docs.',
+      inputSchema: { tool: z.string(), version: z.number().int().optional().describe('tool_version id; default latest'), kind: z.string().optional().describe('required | type | auth | pagination | error_behavior | response_shape | undocumented_constraint | undocumented | other'), limit: z.number().int().min(1).max(500).optional().describe('default 100'), offset: z.number().int().min(0).optional(), verbose: z.boolean().optional() },
+    },
+    async ({ tool, version, kind, limit, offset, verbose }) => {
       const k = await toolKnowledge(await getDb(), tool, version ?? null, false);
-      return k ? text(k) : fail(`no such tool: ${tool}`);
+      if (!k) return noSuchTool(tool);
+      const all = kind ? k.claims.filter((c) => c.kind === kind) : k.claims;
+      const start = offset ?? 0;
+      const page = all.slice(start, start + (limit ?? 100));
+      const counts: Record<string, number> = {};
+      for (const c of k.claims) counts[c.kind] = (counts[c.kind] ?? 0) + 1;
+      return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: all.length, offset: start, returned: page.length, counts_by_kind: counts, claims: shape(page, verbose) });
     },
   );
 
-  tool<{ tool: string; version?: number }>(
+  tool<{ tool: string; version?: number; verbose?: boolean }>(
     'get_divergences',
-    { title: 'Get divergences', description: "Only the verified claims where real behavior CONTRADICTS the tool's spec. The high-value view.", inputSchema: { tool: z.string(), version: z.number().int().optional() } },
-    async ({ tool, version }) => {
+    { title: 'Get divergences', description: "Only the verified claims where real behavior CONTRADICTS the tool's spec, with compact evidence. The high-value view. verbose=true adds response previews.", inputSchema: { tool: z.string(), version: z.number().int().optional(), verbose: z.boolean().optional() } },
+    async ({ tool, version, verbose }) => {
       const k = await toolKnowledge(await getDb(), tool, version ?? null, true);
-      return k ? text(k) : fail(`no such tool: ${tool}`);
+      if (!k) return noSuchTool(tool);
+      return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: k.claims.length, claims: shape(k.claims, verbose) });
     },
   );
 
-  tool<{ query: string; tool?: string; limit?: number }>(
+  tool<{ query: string; tool?: string; limit?: number; verbose?: boolean }>(
     'search_claims',
-    { title: 'Search claims', description: 'Search verified claims with a natural-language question, e.g. "is latitude required on /v1/forecast". Optionally restrict to one tool.', inputSchema: { query: z.string(), tool: z.string().optional(), limit: z.number().int().min(1).max(50).optional() } },
-    async ({ query, tool, limit }) => text(await searchClaims(await getDb(), query, tool ?? null, limit ?? 20)),
+    { title: 'Search claims', description: 'Search verified claims with a natural-language question, e.g. "is latitude required on /v1/forecast". Optionally restrict to one tool. Compact evidence unless verbose=true.', inputSchema: { query: z.string(), tool: z.string().optional(), limit: z.number().int().min(1).max(50).optional(), verbose: z.boolean().optional() } },
+    async ({ query, tool, limit, verbose }) => {
+      if (tool && !(await resolveTool(await getDb(), tool))) return noSuchTool(tool);
+      return text(shape(await searchClaims(await getDb(), query, tool ?? null, limit ?? 20), verbose));
+    },
   );
 
   tool<{ tool: string; version?: number }>(
@@ -106,7 +128,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     { title: 'Get tool docs', description: 'A Markdown behavior sheet for a tool, generated from verified claims: spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior. Each line cites the trial ids that back it. Use this when you are about to call the tool and want its real behavior in one read.', inputSchema: { tool: z.string(), version: z.number().int().optional() } },
     async ({ tool, version }) => {
       const md = await renderToolDocs(await getDb(), tool, version ?? null);
-      return md ? { content: [{ type: 'text' as const, text: md }] } : fail(`no such tool: ${tool}`);
+      return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );
 
@@ -115,7 +137,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     { title: 'Get version diff', description: 'Changelog of verified behavior between two versions of a tool: changed / added / removed claims.', inputSchema: { tool: z.string(), from_version: z.number().int(), to_version: z.number().int() } },
     async ({ tool, from_version, to_version }) => {
       const d = await versionDiff(await getDb(), tool, from_version, to_version);
-      return d ? text(d) : fail(`no such tool: ${tool}`);
+      return d ? text(d) : await noSuchTool(tool);
     },
   );
 

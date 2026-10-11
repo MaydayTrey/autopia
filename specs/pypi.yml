@@ -1,0 +1,55 @@
+# Hand-authored by the Autopia project: PyPI publishes no OpenAPI document.
+# Describes the JSON API (https://docs.pypi.org/api/json/) and the PEP 691 Simple API
+# (https://docs.pypi.org/api/simple/) read endpoints. Divergences reported against this file
+# mean "PyPI disagrees with that description".
+openapi: 3.1.0
+info:
+  title: PyPI (community description)
+  version: '2026-10-12'
+servers:
+  - url: https://pypi.org
+paths:
+  /pypi/{project}/json:
+    get:
+      operationId: getProject
+      summary: Project metadata, latest release, all releases, URLs
+      parameters:
+        - name: project
+          in: path
+          required: true
+          schema: { type: string }
+          example: requests
+      responses:
+        '200': { description: '{ info, releases, urls, last_serial }' }
+        '404': { description: not found }
+  /pypi/{project}/{version}/json:
+    get:
+      operationId: getRelease
+      summary: One release's metadata and files
+      parameters:
+        - name: project
+          in: path
+          required: true
+          schema: { type: string }
+          example: requests
+        - name: version
+          in: path
+          required: true
+          schema: { type: string }
+          example: 2.31.0
+      responses:
+        '200': { description: '{ info, urls, last_serial }' }
+        '404': { description: not found }
+  /simple/{project}/:
+    get:
+      operationId: getSimpleProject
+      summary: PEP 691 Simple API project page (JSON when Accept asks for it)
+      parameters:
+        - name: project
+          in: path
+          required: true
+          schema: { type: string }
+          example: requests
+      responses:
+        '200': { description: '{ name, files, versions, meta }' }
+        '404': { description: not found }

@@ -1,0 +1,17 @@
+{
+  "name": "npm-registry",
+  "category": "package-registry",
+  "spec_url": "specs/npm-registry.yml",
+  "baseline": {
+    "/{package}": { "package": "express" },
+    "/{package}/{version}": { "package": "express", "version": "latest" },
+    "/-/package/{package}/dist-tags": { "package": "express" },
+    "/-/v1/search": { "text": "express" }
+  },
+  "optional_values": {
+    "/-/v1/search": { "size": "5", "from": "0", "quality": "0.5", "popularity": "0.5", "maintenance": "0.5" }
+  },
+  "headers": { "user-agent": "autopia/0.1 (read-only API behavior research; github.com/MaydayTrey/autopia)" },
+  "rate": { "concurrency": 1, "min_interval_ms": 400 },
+  "max_trials": 300
+}

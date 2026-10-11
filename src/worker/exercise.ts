@@ -46,6 +46,18 @@ export function planAll(endpoints: EndpointSpec[], target: TargetConfig, maxTria
   return all;
 }
 
+/**
+ * Lengths of the top-level array ("" key) and of first-level array fields, recorded
+ * BEFORE truncation so list semantics (clamped per_page, empty last page) stay
+ * checkable even though stored bodies keep only a few elements.
+ */
+export function arrayLengths(body: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (Array.isArray(body)) out[''] = body.length;
+  else if (body && typeof body === 'object') for (const [k, v] of Object.entries(body as object)) if (Array.isArray(v)) out[k] = v.length;
+  return out;
+}
+
 /** Execute one trial input and shape it as a DB row (no insert). Reused by VERIFY. */
 export async function runOne(input: TrialInput, opts: ExerciseOptions) {
   const out = await execute(input, { timeoutMs: opts.timeoutMs, fetchImpl: opts.fetchImpl, sleep: opts.sleep });
@@ -56,7 +68,7 @@ export async function runOne(input: TrialInput, opts: ExerciseOptions) {
     row: {
       input: stored as unknown as object,
       inputHash: hashInput(stored),
-      response: { status: out.status, headers: out.headers, body: truncateBody(out.body), bodyKind: out.bodyKind } as object,
+      response: { status: out.status, headers: out.headers, body: truncateBody(out.body), bodyKind: out.bodyKind, arrayLengths: arrayLengths(out.body) } as object,
       signature: out.signature as unknown as object,
       statusCode: out.status,
       errorText: out.transportError ?? (out.rateLimited ? 'rate_limited' : out.signature.errorMessage),

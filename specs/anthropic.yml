@@ -1,0 +1,59 @@
+# Hand-authored by the Autopia project from https://platform.claude.com/docs/en/api/models-list
+# and models-retrieve: the read-only Models endpoints of the Claude API. POST endpoints such as
+# /v1/messages are out of scope until the battery can send JSON bodies.
+openapi: 3.1.0
+info:
+  title: Claude API, Models endpoints (community description)
+  version: '2023-06-01'
+servers:
+  - url: https://api.anthropic.com
+security:
+  - apiKey: []
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: x-api-key
+      in: header
+paths:
+  /v1/models:
+    get:
+      operationId: listModels
+      summary: List available models, most recently released first
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: true
+          schema: { type: string, default: '2023-06-01' }
+        - name: limit
+          in: query
+          description: number of items per page
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 20 }
+        - name: before_id
+          in: query
+          description: cursor; return the page before this object id
+          schema: { type: string }
+        - name: after_id
+          in: query
+          description: cursor; return the page after this object id
+          schema: { type: string }
+      responses:
+        '200': { description: '{ data: [model], has_more, first_id, last_id }' }
+        '401': { description: authentication error }
+  /v1/models/{model_id}:
+    get:
+      operationId: getModel
+      summary: One model by id or alias
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: true
+          schema: { type: string, default: '2023-06-01' }
+        - name: model_id
+          in: path
+          required: true
+          schema: { type: string }
+          example: claude-opus-5-5
+      responses:
+        '200': { description: model object }
+        '404': { description: not found }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { batteryHash, buildBaseline, planTrials, valueFor } from '../../src/worker/battery/index.js';
+import { batteryHash, buildBaseline, invalidCredentialLike, planTrials, valueFor } from '../../src/worker/battery/index.js';
 import { buildUrl, hashInput } from '../../src/worker/http.js';
 import { validateTarget } from '../../src/worker/target.js';
 import type { EndpointSpec } from '../../src/worker/spec.js';
@@ -145,4 +145,23 @@ test('planTrials: auth fallback probes only a header the target actually sends; 
   assert.equal(withHeader['bad_auth:x-api-key'].input.headers['x-api-key'], 'invalid-key-autopia');
   assert.equal(withHeader['no_auth:x-api-key'].input.headers['x-api-key'], '');
   assert.equal(withHeader.baseline.input.headers['x-api-key'], 'real');
+});
+
+test('bad_auth preserves the credential scheme; date-time params get format probes', () => {
+  assert.equal(invalidCredentialLike('Bearer ghp_real'), 'Bearer invalid-key-autopia');
+  assert.equal(invalidCredentialLike('token abc'), 'token invalid-key-autopia');
+  assert.match(invalidCredentialLike('Basic dXNlcjpwYXNz'), /^Basic [A-Za-z0-9+/=]+$/);
+  assert.equal(invalidCredentialLike('raw-key'), 'invalid-key-autopia');
+  assert.equal(invalidCredentialLike(undefined), 'invalid-key-autopia');
+
+  const ep: EndpointSpec = { ...itemsEndpoint, authSchemes: [], params: [{ name: 'since', in: 'query', required: false, type: 'string', format: 'date-time', explode: true }, { name: 'q', in: 'query', required: true, type: 'string', explode: true }] };
+  const t = validateTarget({ name: 'd', spec_url: 'x', baseline: { '/v1/items': { q: 'hello' } }, headers: { authorization: 'Bearer real' } });
+  const plan = Object.fromEntries(planTrials(ep, t).map((m) => [m.id, m]));
+  assert.equal(buildUrl(plan['datetime_date_only:since'].input), 'http://x/v1/items?q=hello&since=2026-01-15');
+  assert.equal(buildUrl(plan['datetime_no_tz:since'].input), 'http://x/v1/items?q=hello&since=2026-01-15T12%3A00%3A00');
+  assert.equal(buildUrl(plan['datetime_epoch:since'].input), 'http://x/v1/items?q=hello&since=1768478400');
+  assert.equal(buildUrl(plan['datetime_invalid:since'].input), 'http://x/v1/items?q=hello&since=not-a-date');
+  assert.equal(plan['datetime_no_tz:since'].baseOf, 'optional_present:since');
+  assert.ok(!('datetime_epoch:q' in plan), 'plain strings get no date probes');
+  assert.equal(plan['bad_auth:authorization'].input.headers.authorization, 'Bearer invalid-key-autopia', 'legacy header fallback keeps the scheme');
 });

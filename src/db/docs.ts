@@ -163,11 +163,23 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   }
 
   const endpoints = [...new Set(claims.map((c) => c.endpoint))].sort();
+  const body = claims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint');
+
+  // Facts that hold on EVERY endpoint go once, at the top, not once per endpoint.
+  const common = commonAcrossEndpoints(body, endpoints);
+  if (common.length) {
+    lines.push('', `## Behavior common to all ${endpoints.length} endpoints`);
+    for (const g of common) lines.push(`- ${g.statement} ${ev(g.claims)}`);
+  }
+  const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
+
   lines.push('', '## Endpoint behavior');
   for (const ep of endpoints) {
-    const mine = claims.filter((c) => c.endpoint === ep && c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint');
+    const mine = body.filter((c) => c.endpoint === ep && !commonKeys.has(c.claim_key));
     lines.push('', `### ${ep}`);
-    const shape = mine.filter((c) => c.kind === 'response_shape');
+    // Responses: only facts a caller acts on. Negative shape findings ("no nulls", "no pagination
+    // fields") and plain JSON content types are padding and are left out.
+    const shape = mine.filter((c) => c.kind === 'response_shape' && isActionableShape(c));
     if (shape.length) {
       lines.push('', 'Responses:');
       for (const c of shape.sort(byKey)) lines.push(`- ${c.statement} ${ev(c)}`);
@@ -182,8 +194,43 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
       lines.push('', 'Request validation:');
       lines.push(...paramLines);
     }
+    if (!shape.length && !general.length && !paramLines.length) lines.push('', 'Nothing beyond the common behavior above.');
   }
   return lines.join('\n');
+}
+
+/** Shape claims worth a line: positives (nulls present, pagination fields, Link/rate-limit/cache headers, timestamps), not absences or "it is JSON". */
+function isActionableShape(c: ClaimView): boolean {
+  const s = c.statement;
+  if (/content-type "application\/json/.test(s)) return false;
+  if (/contains no null-valued fields/.test(s)) return false;
+  if (/has no top-level pagination fields/.test(s)) return false;
+  return true;
+}
+
+/**
+ * Group endpoint-level claims by their rule and parameter; when the same rule produced the same
+ * verdict and status on EVERY endpoint, present it once. The statement is taken from the first
+ * endpoint with endpoint-specific wording removed where it is just the path.
+ */
+function commonAcrossEndpoints(body: ClaimView[], endpoints: string[]): { statement: string; claims: ClaimView[] }[] {
+  if (endpoints.length < 2) return [];
+  const groups = new Map<string, ClaimView[]>();
+  for (const c of body) {
+    if (c.source !== 'rules') continue;
+    const rule = ruleOf(c);
+    if (!rule) continue;
+    const status = probeStatus(c);
+    groups.set(`${rule}|${c.param ?? '-'}|${c.verdict}|${status}`, [...(groups.get(`${rule}|${c.param ?? '-'}|${c.verdict}|${status}`) ?? []), c]);
+  }
+  const out: { statement: string; claims: ClaimView[] }[] = [];
+  for (const [, list] of groups) {
+    const eps = new Set(list.map((c) => c.endpoint));
+    if (eps.size !== endpoints.length) continue;
+    if (list[0].kind === 'response_shape' && !isActionableShape(list[0])) continue;
+    out.push({ statement: list[0].statement.replace(/\s*\(without it: HTTP \d+\)/, ''), claims: list });
+  }
+  return out.sort((a, b) => byKind(a.claims[0], b.claims[0]));
 }
 
 const KIND_ORDER = ['required', 'auth', 'type', 'pagination', 'error_behavior', 'undocumented', 'other'];

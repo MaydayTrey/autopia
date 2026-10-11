@@ -203,6 +203,8 @@ async function main() {
         const f = src.label;
         try {
           const target = await src.load();
+          // Convention: targets/<tool name>.json, so a caller can guess the tool name from the file.
+          if (f.endsWith('.json') && path.basename(f, '.json') !== target.name) log.warn('run-all', `${f} defines tool "${target.name}"; rename the file to ${target.name}.json so the name is guessable`);
           const s = await runPipeline(db, target, { llm, reproduce: values.reproduce });
           const diff = s.diff ? `  diff vs #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}` : '';
           rows.push(`${s.toolName.padEnd(26)} run #${String(s.testRunId).padEnd(4)} ${s.isNewVersion ? 'NEW VERSION ' : 'same version'}  trials ${String(s.trials).padStart(4)}  verified ${String(s.verified.length).padStart(4)}  rejected ${String(s.rejected.length).padStart(3)}  divergences ${String(s.divergences).padStart(3)}${diff}`);
