@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { batteryHash, buildBaseline, planTrials, valueFor } from '../../src/worker/battery/index.js';
 import { buildUrl, hashInput } from '../../src/worker/http.js';
 import { validateTarget } from '../../src/worker/target.js';
+import type { EndpointSpec } from '../../src/worker/spec.js';
 import { itemsEndpoint } from '../helpers.js';
 
 const target = validateTarget({ name: 'mock', spec_url: 'x', baseline: { '/v1/items': { q: 'hello' } }, optional_values: { '/v1/items': { sort: 'desc' } } });
@@ -56,7 +57,7 @@ test('planTrials is deterministic and covers the battery', () => {
     'pagination_zero:page',
     'pagination_huge:limit',
     'extra_field',
-    'bad_auth',
+    'bad_auth:api_key',
     'wrong_content_type',
     'path_trailing_slash',
     'method_head',
@@ -82,11 +83,50 @@ test('planTrials: mutation contents', () => {
   assert.equal(buildUrl(plan['enum_invalid:sort'].input), 'http://x/v1/items?q=hello&sort=not_a_documented_value');
   assert.equal(buildUrl(plan['duplicate_param:q'].input), 'http://x/v1/items?q=hello&q=hello2');
   assert.equal(buildUrl(plan['extra_field'].input), 'http://x/v1/items?q=hello&autopia_unknown_param=1');
-  assert.equal(buildUrl(plan['bad_auth'].input), 'http://x/v1/items?q=hello&api_key=invalid-key-autopia');
+  assert.equal(buildUrl(plan['bad_auth:api_key'].input), 'http://x/v1/items?q=hello&api_key=invalid-key-autopia');
   assert.equal(plan['path_trailing_slash'].input.url, 'http://x/v1/items/');
   assert.equal(plan['method_head'].input.method, 'HEAD');
   assert.equal(plan['wrong_content_type'].input.headers.accept, 'application/xml');
   assert.equal(plan['boundary_long_string:q'].input.query[0][1].length, 2048);
+});
+
+test('planTrials: path parameters get the per-parameter probes; auth probes target declared schemes', () => {
+  const ep: EndpointSpec = {
+    method: 'GET',
+    path: '/v1/stations/{stationId}/obs/{n}',
+    server: 'http://x',
+    hasSecurity: true,
+    authSchemes: [
+      { scheme: 'ua', name: 'User-Agent', in: 'header' },
+      { scheme: 'k', name: 'api_key', in: 'query' },
+    ],
+    params: [
+      { name: 'stationId', in: 'path', required: true, type: 'string', explode: true },
+      { name: 'n', in: 'path', required: true, type: 'integer', minimum: 1, maximum: 10, explode: true },
+      { name: 'api_key', in: 'query', required: false, type: 'string', explode: true },
+    ],
+  };
+  const t = validateTarget({ name: 'p', spec_url: 'x', baseline: { '/v1/stations/{stationId}/obs/{n}': { stationId: 'KTOP' } } });
+  const plan = Object.fromEntries(planTrials(ep, t).map((m) => [m.id, m]));
+
+  assert.equal(plan.baseline.input.url, 'http://x/v1/stations/KTOP/obs/1');
+  assert.deepEqual(plan.baseline.input.pathParams, { stationId: 'KTOP', n: '1' });
+  assert.equal(plan['wrong_type:n'].input.url, 'http://x/v1/stations/KTOP/obs/abc');
+  assert.equal(plan['empty_value:stationId'].input.url, 'http://x/v1/stations//obs/1');
+  assert.equal(plan['null_value:stationId'].input.url, 'http://x/v1/stations/null/obs/1');
+  assert.equal(plan['boundary_above_max:n'].input.url, 'http://x/v1/stations/KTOP/obs/11');
+  assert.equal(plan['boundary_far_above_max:n'].input.url, 'http://x/v1/stations/KTOP/obs/100');
+  assert.equal(plan['boundary_long_string:stationId'].input.pathParams?.stationId.length, 2048);
+  assert.equal(plan['wrong_type:n'].baseOf, 'baseline');
+  assert.ok(!('required_omitted:stationId' in plan), 'path params cannot be omitted; the empty segment is the probe');
+
+  // auth: header scheme -> bad value + '' (send no header); query scheme -> bad value only (baseline has none to omit)
+  assert.equal(plan['bad_auth:User-Agent'].input.headers['user-agent'], 'invalid-key-autopia');
+  assert.equal(plan['no_auth:User-Agent'].input.headers['user-agent'], '');
+  assert.equal(buildUrl(plan['bad_auth:api_key'].input), 'http://x/v1/stations/KTOP/obs/1?api_key=invalid-key-autopia');
+  assert.ok(!('no_auth:api_key' in plan));
+  assert.ok(!('bad_auth' in plan), 'legacy generic auth probe is replaced by scheme-specific ones');
+  assert.deepEqual(planTrials(ep, t), planTrials(ep, t), 'deterministic');
 });
 
 test('batteryHash is stable', () => {

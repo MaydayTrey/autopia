@@ -139,6 +139,23 @@ THIRD TARGET: National Weather Service (targets/nws.json, commit 9f7c0bb)
   in both directions (air-quality 'ignores unknown params' flagged
   against NWS 'rejects'). 58 verified, 0 rejected.
 
+BATTERY 1.2.0 (2026-10-11): PATH PARAMS + SCHEME-TARGETED AUTH
+  - Path parameters now get the same per-parameter probes as query
+    params (wrong type, enum, null, EMPTY SEGMENT, boundaries, long
+    string), substituted into the URL. TrialInput.pathParams records
+    the values; rules/LLM summary read them. Path params cannot be
+    'omitted'; the empty segment is the probe.
+  - Auth probes read the spec's apiKey securitySchemes (spec.ts
+    EndpointSpec.authSchemes) and emit bad_auth:<name> (invalid value)
+    and no_auth:<name> (header value '' = executor sends NO such
+    header, including its own default User-Agent). Falls back to the
+    old heuristics only when the spec declares no apiKey scheme.
+  - Why: NWS run #10 said 'invalid credential accepted' because we
+    sent Authorization: Bearer, a header NWS never reads. Its real
+    gate is User-Agent (403 when missing); the X-Api-Key scheme is
+    declared but not enforced. Probing the wrong header told us about
+    our probe, not the API. Lesson: read the security block.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

@@ -77,6 +77,7 @@ export const itemsEndpoint: EndpointSpec = {
   server: 'http://x',
   operationId: 'listItems',
   hasSecurity: false,
+  authSchemes: [],
   params: [
     { name: 'q', in: 'query', required: true, type: 'string', explode: true },
     { name: 'limit', in: 'query', required: false, type: 'integer', minimum: 1, maximum: 100, explode: true },

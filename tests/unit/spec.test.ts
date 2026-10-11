@@ -9,6 +9,12 @@ const doc = {
   components: {
     parameters: { Limit: { name: 'limit', in: 'query', schema: { $ref: '#/components/schemas/Limit' } } },
     schemas: { Limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 } },
+    securitySchemes: {
+      key: { type: 'apiKey', name: 'X-Api-Key', in: 'header' },
+      ua: { type: 'apiKey', name: 'User-Agent', in: 'header' },
+      q: { type: 'apiKey', name: 'api_key', in: 'query' },
+      bearer: { type: 'http', scheme: 'bearer' }, // out of v1 scope: ignored
+    },
   },
   paths: {
     '/things': {
@@ -25,7 +31,7 @@ const doc = {
     },
     '/things/{id}': {
       servers: [{ url: 'https://other.example.com' }],
-      get: { parameters: [{ name: 'id', in: 'path', schema: { type: 'integer' } }], security: [{ key: [] }] },
+      get: { parameters: [{ name: 'id', in: 'path', schema: { type: 'integer' } }], security: [{ key: [] }, { ua: [], q: [] }, { bearer: [] }] },
     },
     '/upload': { get: { requestBody: { content: {} } } },
   },
@@ -59,6 +65,13 @@ test('extractEndpoints: GET endpoints, $ref resolution, merged path-level params
   assert.equal(one.hasSecurity, true);
   assert.equal(one.params[0].in, 'path');
   assert.equal(one.params[0].required, true); // path params are always required
+  // apiKey schemes resolved to concrete header/query names; http bearer ignored; de-duplicated
+  assert.deepEqual(one.authSchemes, [
+    { scheme: 'key', name: 'X-Api-Key', in: 'header' },
+    { scheme: 'ua', name: 'User-Agent', in: 'header' },
+    { scheme: 'q', name: 'api_key', in: 'query' },
+  ]);
+  assert.deepEqual(things.authSchemes, []); // no root security, none on the op
 });
 
 test('extractEndpoints: rejects Swagger 2, non-OpenAPI, missing servers, no GET', () => {

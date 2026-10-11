@@ -96,8 +96,12 @@ function queryDiff(t: Trial, base?: Trial): string {
   const u = (t.input as { url?: string }).url ?? '';
   const prefix = [m && m !== 'GET' ? m : '', u.endsWith('/') && base && !((base.input as { url?: string }).url ?? '').endsWith('/') ? 'trailing-slash' : ''].filter(Boolean).join(' ');
   const h = (t.input as { headers?: Record<string, string> }).headers ?? {};
-  const hs = Object.entries(h).filter(([k]) => k !== 'user-agent').map(([k, v]) => `${k}:${v}`).join(' ');
-  return [prefix, q.join('&') || '(none)', hs].filter(Boolean).join(' ');
+  const hs = Object.entries(h).map(([k, v]) => (v === '' ? `NO-${k}-header` : `${k}:${v.length > 30 ? v.slice(0, 27) + '...' : v}`)).join(' ');
+  // Path params: show only the ones that differ from the baseline's.
+  const pp = (t.input as { pathParams?: Record<string, string> }).pathParams ?? {};
+  const bpp = (base?.input as { pathParams?: Record<string, string> } | undefined)?.pathParams ?? {};
+  const ps = Object.entries(pp).filter(([k, v]) => bpp[k] !== v).map(([k, v]) => `path ${k}=${v.length > 30 ? v.slice(0, 27) + '...' : v || '(empty)'}`).join(' ');
+  return [prefix, ps, q.join('&') || '(none)', hs].filter(Boolean).join(' ');
 }
 
 function bodySummary(t: Trial): string {

@@ -83,7 +83,8 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
 
   for (const t of all) {
     const p = t.paramName ? params.get(t.paramName) : undefined;
-    const base = baseFor(t);
+    // Auth probes are built on the baseline even when the credential is an optional param.
+    const base = t.mutationType === 'bad_auth' || t.mutationType === 'no_auth' ? baseline : baseFor(t);
     if (!base || !ok(base)) continue; // optional_present failed; probes on that param are not interpretable
     const pn = t.paramName;
     const kindType: ClaimKind = 'type';
@@ -147,9 +148,15 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
         if (rejected(t)) out.push(claim('extra_field', ep, null, 'undocumented', 'rejects', `Unknown query parameters are rejected with ${desc}.`, [base, t]));
         else if (ok(t)) out.push(claim('extra_field', ep, null, 'undocumented', 'accepts', `Unknown query parameters are ignored (${status(t)}).`, [base, t]));
         break;
-      case 'bad_auth':
-        if (rejected(t)) out.push(claim('bad_auth', ep, null, 'auth', 'rejects', `An invalid credential is rejected with ${desc}.`, [base, t]));
-        else if (ok(t)) out.push(claim('bad_auth', ep, null, 'auth', 'accepts', `An invalid credential value is accepted on this endpoint (${status(t)}); the credential is not enforced here.`, [base, t]));
+      case 'bad_auth': {
+        const where = pn ? `in "${pn}"` : 'in the auth header';
+        if (rejected(t)) out.push(claim('bad_auth', ep, pn, 'auth', 'rejects', `An invalid credential ${where} is rejected with ${desc}.`, [base, t]));
+        else if (ok(t)) out.push(claim('bad_auth', ep, pn, 'auth', 'accepts', `An invalid credential ${where} is accepted (${status(t)}); its value is not validated on this endpoint.`, [base, t]));
+        break;
+      }
+      case 'no_auth':
+        if (rejected(t)) out.push(claim('no_auth', ep, pn, 'auth', 'rejects', `Omitting "${pn}" entirely is rejected with ${desc}; it is required to call this endpoint.`, [base, t]));
+        else if (ok(t)) out.push(claim('no_auth', ep, pn, 'auth', 'accepts', `Omitting "${pn}" entirely is accepted (${status(t)}); the documented credential is not required on this endpoint.`, [base, t]));
         break;
       case 'pagination_zero':
       case 'pagination_huge':
@@ -200,11 +207,13 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
   return out;
 }
 
+/** The probed value for a parameter: last query occurrence, else the substituted path value. */
 function queryValue(t: Trial, param: string | null): string {
   if (!param) return '';
-  const q = (t.input as { query?: [string, string][] }).query ?? [];
-  const hit = q.filter(([k]) => k === param);
-  return hit.length ? hit[hit.length - 1][1] : '';
+  const input = t.input as { query?: [string, string][]; pathParams?: Record<string, string> };
+  const hit = (input.query ?? []).filter(([k]) => k === param);
+  if (hit.length) return hit[hit.length - 1][1];
+  return input.pathParams?.[param] ?? '';
 }
 
 function declaredType(p: ParamSpec): string {

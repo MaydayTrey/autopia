@@ -20,7 +20,8 @@ function v1Trials() {
     fakeTrial({ mutationId: 'null_value:q', status: 400, body: ERR('invalid_q', 'q may not be null'), query: [['q', 'null']] }),
     fakeTrial({ mutationId: 'pagination_zero:page', status: 400, body: ERR('invalid_page', 'page must be >= 1'), query: [...q, ['page', '0']] }),
     fakeTrial({ mutationId: 'extra_field', status: 200, body: OK_LIST, query: [...q, ['autopia_unknown_param', '1']] }),
-    fakeTrial({ mutationId: 'bad_auth', status: 200, body: OK_LIST, query: [...q, ['api_key', 'invalid']] }),
+    fakeTrial({ mutationId: 'bad_auth:api_key', status: 200, body: OK_LIST, query: [...q, ['api_key', 'invalid']] }),
+    fakeTrial({ mutationId: 'no_auth:User-Agent', status: 403, body: ERR('forbidden', 'User-Agent required'), query: q, headers: { 'user-agent': '' } }),
     fakeTrial({ mutationId: 'path_trailing_slash', status: 404, body: 'not found', query: q, url: 'http://x/v1/items/' }),
     fakeTrial({ mutationId: 'method_head', status: 200, query: q, method: 'HEAD' }),
     fakeTrial({ mutationId: 'wrong_content_type', status: 200, body: OK_LIST, query: q, headers: { accept: 'application/xml' } }),
@@ -58,8 +59,12 @@ test('rules: planted divergences become claims with diverges_from_spec=true and 
   assert.equal(en.diverges_from_spec, false);
 
   assert.equal(byKey['rule:extra_field:get_v1_items:-'].verdict, 'accepts');
-  assert.equal(byKey['rule:bad_auth:get_v1_items:-'].kind, 'auth');
-  assert.equal(byKey['rule:bad_auth:get_v1_items:-'].verdict, 'accepts');
+  assert.equal(byKey['rule:bad_auth:get_v1_items:api_key'].kind, 'auth');
+  assert.equal(byKey['rule:bad_auth:get_v1_items:api_key'].verdict, 'accepts');
+  assert.match(byKey['rule:bad_auth:get_v1_items:api_key'].statement, /in "api_key"/);
+  assert.equal(byKey['rule:no_auth:get_v1_items:User-Agent'].kind, 'auth');
+  assert.equal(byKey['rule:no_auth:get_v1_items:User-Agent'].verdict, 'rejects');
+  assert.match(byKey['rule:no_auth:get_v1_items:User-Agent'].statement, /HTTP 403/);
   assert.equal(byKey['rule:pagination_zero:get_v1_items:page'].kind, 'pagination');
   assert.equal(byKey['rule:empty_value:get_v1_items:limit'].verdict, 'accepts');
   assert.match(byKey['rule:empty_value:get_v1_items:limit'].statement, /same shape/);
@@ -105,4 +110,20 @@ test('rules: two runs over equivalent trials give identical claim keys', () => {
   const a = rulesClaims(v1Trials(), [itemsEndpoint]).map((c) => c.claim_key);
   const b = rulesClaims(v1Trials(), [itemsEndpoint]).map((c) => c.claim_key);
   assert.deepEqual(a, b);
+});
+
+test('rules: path-parameter probes produce claims with the substituted value', () => {
+  resetIds();
+  const ep = { ...itemsEndpoint, path: '/v1/items/{id}', params: [{ name: 'id', in: 'path' as const, required: true, type: 'integer' as const, minimum: 1, explode: true }] };
+  const trials = [
+    fakeTrial({ mutationId: 'baseline', status: 200, body: { id: 1 }, endpoint: 'GET /v1/items/{id}', url: 'http://x/v1/items/1' }),
+    fakeTrial({ mutationId: 'wrong_type:id', status: 400, body: ERR('invalid_id', 'id must be an integer'), endpoint: 'GET /v1/items/{id}', url: 'http://x/v1/items/abc' }),
+    fakeTrial({ mutationId: 'boundary_below_min:id', status: 404, body: ERR('not_found', 'no such item'), endpoint: 'GET /v1/items/{id}', url: 'http://x/v1/items/0' }),
+  ].map((t) => ({ ...t, input: { ...(t.input as object), pathParams: { id: t.mutationId === 'baseline' ? '1' : t.mutationId.startsWith('wrong') ? 'abc' : '0' } } }));
+  const byKey = Object.fromEntries(rulesClaims(trials, [ep]).map((c) => [c.claim_key, c]));
+  assert.equal(byKey['rule:wrong_type:get_v1_items_id:id'].verdict, 'rejects');
+  assert.match(byKey['rule:wrong_type:get_v1_items_id:id'].statement, /"abc"/);
+  assert.equal(byKey['rule:boundary_below_min:get_v1_items_id:id'].verdict, 'rejects');
+  assert.match(byKey['rule:boundary_below_min:get_v1_items_id:id'].statement, /"0"/);
+  assert.equal(byKey['rule:boundary_below_min:get_v1_items_id:id'].diverges_from_spec, false);
 });

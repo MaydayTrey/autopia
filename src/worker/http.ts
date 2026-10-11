@@ -14,9 +14,10 @@ import { log } from './log.js';
 
 export interface TrialInput {
   method: 'GET' | 'HEAD';
-  url: string; // server + path, no query string
+  url: string; // server + path (path params already substituted), no query string
   query: [string, string][]; // ordered pairs; duplicates allowed on purpose
-  headers: Record<string, string>;
+  headers: Record<string, string>; // a value of '' means: send NO such header (overrides executor defaults)
+  pathParams?: Record<string, string>; // the substituted path values, for display and claim statements
 }
 
 export interface TrialOutcome {
@@ -65,9 +66,11 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
     const started = performance.now();
     let res: Response;
     try {
+      const headers: Record<string, string> = { 'user-agent': USER_AGENT, accept: 'application/json, */*;q=0.5', ...input.headers };
+      for (const k of Object.keys(headers)) if (headers[k] === '') delete headers[k]; // '' = send no such header
       res = await fetchImpl(url, {
         method: input.method,
-        headers: { 'user-agent': USER_AGENT, accept: 'application/json, */*;q=0.5', ...input.headers },
+        headers,
         signal: AbortSignal.timeout(timeoutMs),
         redirect: 'manual',
       });

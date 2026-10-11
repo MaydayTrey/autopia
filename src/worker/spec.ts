@@ -27,6 +27,13 @@ export interface ParamSpec {
   description?: string;
 }
 
+/** An apiKey-style security scheme that applies to an endpoint: which header or query param carries the credential. */
+export interface AuthScheme {
+  scheme: string; // name in components.securitySchemes
+  name: string; // header or query parameter name, e.g. "User-Agent", "X-Api-Key"
+  in: 'header' | 'query';
+}
+
 export interface EndpointSpec {
   method: 'GET';
   path: string;
@@ -35,6 +42,8 @@ export interface EndpointSpec {
   summary?: string;
   params: ParamSpec[];
   hasSecurity: boolean;
+  /** apiKey schemes the spec says apply here (http bearer/oauth are out of v1 scope and not listed). */
+  authSchemes: AuthScheme[];
 }
 
 export interface ParsedSpec {
@@ -138,6 +147,24 @@ export function extractEndpoints(docIn: unknown): ParsedSpec {
   const info = isObj(doc.info) ? doc.info : {};
   const rootServers = Array.isArray(doc.servers) ? doc.servers : [];
   const rootSecurity = Array.isArray(doc.security) && doc.security.length > 0;
+  const components = isObj(doc.components) ? doc.components : {};
+  const schemes = isObj(components.securitySchemes) ? components.securitySchemes : {};
+  /** Turn a security requirement list into the apiKey schemes it names. */
+  const authSchemesFor = (requirements: unknown): AuthScheme[] => {
+    if (!Array.isArray(requirements)) return [];
+    const out: AuthScheme[] = [];
+    for (const req of requirements) {
+      if (!isObj(req)) continue;
+      for (const schemeName of Object.keys(req)) {
+        const s = resolve<AnyObj>(schemes[schemeName]);
+        if (!isObj(s) || s.type !== 'apiKey' || typeof s.name !== 'string') continue;
+        const where = s.in === 'query' ? 'query' : s.in === 'header' ? 'header' : null;
+        if (!where) continue;
+        if (!out.some((o) => o.scheme === schemeName)) out.push({ scheme: schemeName, name: s.name, in: where });
+      }
+    }
+    return out;
+  };
 
   const endpoints: EndpointSpec[] = [];
   for (const [path, rawItem] of Object.entries(doc.paths)) {
@@ -191,6 +218,7 @@ export function extractEndpoints(docIn: unknown): ParsedSpec {
       summary: typeof op.summary === 'string' ? op.summary : undefined,
       params: [...merged.values()],
       hasSecurity: (Array.isArray(op.security) ? op.security.length > 0 : rootSecurity),
+      authSchemes: authSchemesFor(Array.isArray(op.security) ? op.security : doc.security),
     });
   }
 
