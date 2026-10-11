@@ -1,0 +1,9 @@
+{
+  "name": "open-meteo-elevation",
+  "category": "weather",
+  "spec_url": "https://raw.githubusercontent.com/open-meteo/open-meteo/main/openapi/elevation.yml",
+  "baseline": {
+    "/v1/elevation": { "latitude": "52.52", "longitude": "13.41" }
+  },
+  "rate": { "concurrency": 2, "min_interval_ms": 150 }
+}

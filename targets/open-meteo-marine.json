@@ -1,0 +1,12 @@
+{
+  "name": "open-meteo-marine",
+  "category": "weather",
+  "spec_url": "https://raw.githubusercontent.com/open-meteo/open-meteo/main/openapi/marine.yml",
+  "baseline": {
+    "/v1/marine": { "latitude": "54.54", "longitude": "10.23" }
+  },
+  "optional_values": {
+    "/v1/marine": { "hourly": "wave_height", "daily": "wave_height_max", "current": "wave_height", "minutely_15": "sea_level_height_msl", "timezone": "Europe/Berlin", "start_date": "2026-10-12", "end_date": "2026-10-13", "models": "best_match" }
+  },
+  "rate": { "concurrency": 2, "min_interval_ms": 150 }
+}

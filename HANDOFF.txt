@@ -317,6 +317,40 @@ COST CONTROLS + RETENTION (2026-10-12)
   - Neon free tier: ~700 trial rows/day at 5 tools; with 14-day
     retention the DB stays ~10k trials. Current export is ~7MB.
 
+SHEET FEEDBACK ROUND (2026-10-12, commit 04f3a3f) - from Trey's
+  agent reading the behavior sheet: (1) collapse per-parameter
+  validation claims unless a parameter differs; (2) add response
+  semantics (default timezone, null vs omitted, rate limits); (3)
+  dedupe probe-value variants. Done:
+  - src/worker/aggregate/shape-rules.ts: deterministic
+    'response_shape' claims per endpoint from the baseline (+
+    optional_present) success responses: content type, timestamp
+    format + timezone designator (Z / offset / none / epoch),
+    null-valued fields vs none, top-level pagination fields, rate-
+    limit + cache headers. http.ts now keeps all common rate-limit
+    header families on trials.
+  - src/db/docs.ts: 'Responses:' section per endpoint; 'Request
+    validation:' collapsed via summarizeParameters/renderParameterLines
+    (one line per parameter listing rejected/accepted probe values by
+    status; one endpoint-level line when all parameters behave the
+    same; exceptions spelled out). Unit tests in docs-summary.test.ts.
+  - llm.ts: new kind response_shape in the prompt + a sample success
+    body per endpoint in the summary; asks for semantics over repeated
+    validation claims. Suite: 82.
+  Live check (forecast run #32): timestamps 'ISO 8601 without a
+  timezone designator', no nulls, no pagination, no rate-limit headers.
+
+TARGETS 6-11 (2026-10-12): frankfurter (finance, run #29: 96 verified,
+  0 divergences - clean API), openlibrary (reference-data, run #30:
+  169 verified, 27 divergences mostly sibling vs PokéAPI: strict 422
+  validation vs none; limit=2147483648 -> 403 HTML), jikan
+  (entertainment), binance-spot-public (finance sibling to
+  frankfurter), open-meteo-marine + open-meteo-elevation (weather
+  siblings). Rejected candidates: OpenF1 (catch-all spec), Launch
+  Library (15 req/h anon), Semantic Scholar + Nobel (Swagger 2.0).
+  Probe method: scripts in this session fetched candidate URLs and
+  parsed them; keep looking for 'openapi: 3' + keyless + read-only.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,
