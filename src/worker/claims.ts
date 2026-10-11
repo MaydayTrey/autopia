@@ -39,6 +39,21 @@ export interface CandidateClaim {
   expectations: Expectation[];
   diverges_from_spec: boolean;
   spec_says: string | null;
+  /** Set by cross-ref when a sibling tool (same category) shows the opposite verdict for the same probe. */
+  diverges_from_sibling?: boolean;
+  sibling_note?: string | null;
+}
+
+/**
+ * Identity of a rules claim ACROSS tools: the rule and the parameter, minus
+ * the endpoint. Lets "does forecast ignore unknown params?" be compared with
+ * "does air-quality ignore unknown params?". LLM claims have no sibling key
+ * (their keys embed probe sets that rarely line up across tools).
+ */
+export function siblingKey(claimKey: string, source: string): string | null {
+  if (source !== 'rules') return null;
+  const m = claimKey.match(/^rule:([^:]+):[^:]+:(.*)$/);
+  return m ? `rule:${m[1]}:${m[2]}` : null;
 }
 
 /** What the LLM is asked to return (a subset of CandidateClaim; we derive the rest). */

@@ -1,0 +1,1 @@
+ALTER TABLE "claims" ADD COLUMN "sibling_note" text;

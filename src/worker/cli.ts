@@ -63,7 +63,8 @@ async function main() {
       if (s.diff) out(`  diff vs version #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}`);
       for (const r of s.rejected) out(`  rejected: ${r.reason}  <- ${r.claim.statement}`);
       out('');
-      for (const c of s.verified.filter((c) => c.divergenceType)) out(`  !! DIVERGENCE [${c.kind}] ${c.statement}  (spec: ${c.specSays ?? '-'})  evidence ${c.evidenceTrialIds.join(',')}`);
+      for (const c of s.verified.filter((c) => c.divergenceType === 'spec')) out(`  !! SPEC DIVERGENCE [${c.kind}] ${c.statement}  (spec: ${c.specSays ?? '-'})  evidence ${c.evidenceTrialIds.join(',')}`);
+      for (const c of s.verified.filter((c) => c.siblingNote)) out(`  ~~ SIBLING DIFFERS [${c.kind}] ${c.statement}  (${c.siblingNote})  evidence ${c.evidenceTrialIds.join(',')}`);
       break;
     }
     case 'plan': {
@@ -107,7 +108,7 @@ async function main() {
         out(`${k.tool} version #${k.version?.id ?? '-'} run #${k.run_id ?? '-'}: ${k.claims.length} claims`);
         for (const [kind, list] of Object.entries(k.by_kind)) {
           out(`\n[${kind}]`);
-          for (const c of list) out(`  ${c.diverges_from_spec ? '!! ' : '   '}${c.statement}  {${c.source}, conf ${c.confidence}, evidence ${c.evidence.map((e) => e.id).join(',')}}${c.spec_says ? `  spec: ${c.spec_says}` : ''}`);
+          for (const c of list) out(`  ${c.diverges_from_spec ? '!! ' : c.sibling_note ? '~~ ' : '   '}${c.statement}  {${c.source}, conf ${c.confidence}, evidence ${c.evidence.map((e) => e.id).join(',')}}${c.spec_says ? `  spec: ${c.spec_says}` : ''}${c.sibling_note ? `  sibling: ${c.sibling_note}` : ''}`);
         }
       }
       break;

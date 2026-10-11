@@ -8,6 +8,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { schema } from '../db/client.js';
+import { siblingClaims } from '../db/queries.js';
 import type { Claim, Trial } from '../db/schema.js';
 import type { LlmAdapter } from '../llm/adapter.js';
 import { llmClaims } from './aggregate/llm.js';
@@ -80,8 +81,10 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
     });
     if (evidenceRejected.length) log.warn('verify', `evidence check dropped ${evidenceRejected.length} candidate(s) before cross-ref`, evidenceRejected.map((r) => r.reason));
 
-    // 5b. CROSS-REF (spec tagging + self-consistency)
-    const xr = crossReference(withEvidence, d.parsed.endpoints);
+    // 5b. CROSS-REF (spec tagging + sibling tagging + self-consistency)
+    const siblings = await siblingClaims(db, d.tool.id, d.tool.category);
+    if (siblings.size) log.info('crossref', `comparing against ${siblings.size} sibling claim keys in category "${d.tool.category}"`);
+    const xr = crossReference(withEvidence, d.parsed.endpoints, siblings);
 
     // 6. VERIFY (evidence check again, then reproduction)
     const v = await verify(xr.kept, trialsById, { ...opts, minIntervalMs: opts.minIntervalMs ?? target.rate?.min_interval_ms, reproduce: opts.reproduce });

@@ -14,7 +14,7 @@
  *            and they share at least one evidence trial
  *       Exact duplicate claim_keys keep the first (rules precede LLM).
  */
-import type { CandidateClaim } from './claims.js';
+import { siblingKey, type CandidateClaim } from './claims.js';
 import { log } from './log.js';
 import { endpointLabel, type EndpointSpec, type ParamSpec } from './spec.js';
 
@@ -23,12 +23,15 @@ export interface CrossRefResult {
   quarantined: { claim: CandidateClaim; reason: string }[];
 }
 
-export function crossReference(claims: CandidateClaim[], endpoints: EndpointSpec[]): CrossRefResult {
+/** Verified claims of sibling tools, keyed by siblingKey (see claims.ts). */
+export type SiblingIndex = Map<string, { tool: string; verdict: string; statement: string }[]>;
+
+export function crossReference(claims: CandidateClaim[], endpoints: EndpointSpec[], siblings: SiblingIndex = new Map()): CrossRefResult {
   const params = new Map<string, Map<string, ParamSpec>>();
   for (const ep of endpoints) params.set(endpointLabel(ep), new Map(ep.params.map((p) => [p.name, p])));
 
-  // (a) spec tagging
-  const tagged = claims.map((c) => tagAgainstSpec(c, params.get(c.endpoint)));
+  // (a) spec tagging, (b) sibling tagging
+  const tagged = claims.map((c) => tagAgainstSiblings(tagAgainstSpec(c, params.get(c.endpoint)), siblings));
 
   // dedupe by key
   const byKey = new Map<string, CandidateClaim>();
@@ -72,11 +75,25 @@ export function crossReference(claims: CandidateClaim[], endpoints: EndpointSpec
   for (const c of kept) if (bad.has(c.claim_key)) quarantined.push({ claim: c, reason: bad.get(c.claim_key)! });
   kept = kept.filter((c) => !bad.has(c.claim_key));
 
-  // (b) siblings: not yet
-  log.debug('crossref', 'sibling-tool comparison skipped (needs >= 2 tools in a category)');
+  if (siblings.size === 0) log.debug('crossref', 'no sibling tools in this category yet; sibling comparison skipped');
   for (const q of quarantined) log.warn('crossref', `quarantined: ${q.reason}`, { statement: q.claim.statement });
-  log.info('crossref', `${kept.length} claims kept, ${quarantined.length} quarantined, ${kept.filter((c) => c.diverges_from_spec).length} diverge from spec`);
+  log.info('crossref', `${kept.length} claims kept, ${quarantined.length} quarantined, ${kept.filter((c) => c.diverges_from_spec).length} diverge from spec, ${kept.filter((c) => c.diverges_from_sibling).length} diverge from siblings`);
   return { kept, quarantined };
+}
+
+/**
+ * Sibling comparison: same rule + same parameter on another tool in the same
+ * category, opposite verdict (accepts vs rejects) -> flag it. "observes"
+ * claims are descriptive and never conflict.
+ */
+export function tagAgainstSiblings(c: CandidateClaim, siblings: SiblingIndex): CandidateClaim {
+  if (c.verdict === 'observes') return c;
+  const key = siblingKey(c.claim_key, c.source);
+  if (!key) return c;
+  const others = siblings.get(key) ?? [];
+  const disagree = others.filter((o) => o.verdict !== c.verdict && o.verdict !== 'observes');
+  if (disagree.length === 0) return c;
+  return { ...c, diverges_from_sibling: true, sibling_note: disagree.map((o) => `${o.tool}: ${o.verdict}`).join('; ') };
 }
 
 /** Mechanical spec comparison where the spec has an opinion. */

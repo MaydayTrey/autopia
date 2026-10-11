@@ -9,6 +9,8 @@ import type { Db } from './client.js';
 import { schema } from './client.js';
 import type { Claim, TestRun, Tool, ToolVersion, Trial } from './schema.js';
 import { diffClaimSets, latestClaimsForVersion, type DiffEntry } from '../worker/diff.js';
+import { siblingKey } from '../worker/claims.js';
+import type { SiblingIndex } from '../worker/crossref.js';
 
 export interface TrialRef {
   id: number;
@@ -32,9 +34,31 @@ export interface ClaimView {
   source: string;
   confidence: number;
   diverges_from_spec: boolean;
+  divergence_type: string | null; // spec | sibling | null
   spec_says: string | null;
+  sibling_note: string | null;
   verified: boolean;
   evidence: TrialRef[];
+}
+
+/**
+ * Current verified claims of OTHER tools in the same category, indexed by
+ * siblingKey, for cross-reference. Empty when the tool has no siblings yet.
+ */
+export async function siblingClaims(db: Db, toolId: number, category: string | null): Promise<SiblingIndex> {
+  const index: SiblingIndex = new Map();
+  if (!category) return index;
+  const others = (await db.select().from(schema.tools).where(eq(schema.tools.category, category))).filter((t) => t.id !== toolId);
+  for (const t of others) {
+    const v = await resolveVersion(db, t.id, null);
+    const cur = v ? await latestClaimsForVersion(db, v.id) : null;
+    for (const c of cur?.claims ?? []) {
+      const k = siblingKey(c.claimKey, c.source);
+      if (!k) continue;
+      index.set(k, [...(index.get(k) ?? []), { tool: t.name, verdict: c.verdict, statement: c.statement }]);
+    }
+  }
+  return index;
 }
 
 export async function listTools(db: Db) {
@@ -126,7 +150,9 @@ export async function withEvidence(db: Db, claims: Claim[]): Promise<ClaimView[]
     source: c.source,
     confidence: c.confidence,
     diverges_from_spec: c.divergenceType === 'spec',
+    divergence_type: c.divergenceType,
     spec_says: c.specSays,
+    sibling_note: c.siblingNote,
     verified: c.verified,
     evidence: c.evidenceTrialIds.map((id) => trials.get(id)).filter((t): t is Trial => !!t).map(toTrialRef),
   }));

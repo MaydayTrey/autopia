@@ -106,8 +106,9 @@ export const claims = pgTable(
     verdict: text('verdict').notNull(), // accepts | rejects | observes
     source: text('source').notNull(), // rules | llm
     confidence: real('confidence').notNull(),
-    divergenceType: text('divergence_type'), // spec | sibling | null
+    divergenceType: text('divergence_type'), // spec | sibling | null  (spec wins when both apply)
     specSays: text('spec_says'),
+    siblingNote: text('sibling_note'), // e.g. "open-meteo-forecast: accepts" when a sibling tool disagrees
     verified: boolean('verified').notNull().default(false),
     evidenceTrialIds: bigint('evidence_trial_ids', { mode: 'number' }).array().notNull(),
     expectations: jsonb('expectations').notNull(), // [{trial_id, status}] what each cited trial must show

@@ -1,0 +1,21 @@
+{
+  "name": "open-meteo-air-quality",
+  "category": "weather",
+  "spec_url": "https://raw.githubusercontent.com/open-meteo/open-meteo/main/openapi/air-quality.yml",
+  "baseline": {
+    "/v1/air-quality": {
+      "latitude": "52.52",
+      "longitude": "13.41"
+    }
+  },
+  "optional_values": {
+    "/v1/air-quality": {
+      "hourly": "pm10",
+      "current": "pm10",
+      "timezone": "Europe/Berlin",
+      "start_date": "2026-10-12",
+      "end_date": "2026-10-13"
+    }
+  },
+  "rate": { "concurrency": 2, "min_interval_ms": 150 }
+}

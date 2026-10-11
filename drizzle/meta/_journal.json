@@ -8,6 +8,13 @@
       "when": 1791692010562,
       "tag": "0000_superb_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791695334763,
+      "tag": "0001_smart_blur",
+      "breakpoints": true
     }
   ]
 }
