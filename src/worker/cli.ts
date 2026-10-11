@@ -144,14 +144,20 @@ async function main() {
       const runs = (await runsForTool(db, tool.id)).filter((r) => r.status === 'finished');
       if (runs.length < 2) throw new Error('need two finished runs');
       const { schema } = await import('../db/client.js');
-      const { eq } = await import('drizzle-orm');
-      const keys = async (runId: number) => new Set((await db.select({ k: schema.claims.claimKey }).from(schema.claims).where(eq(schema.claims.testRunId, runId))).map((r) => r.k));
-      const [a, b] = [await keys(runs[1].id), await keys(runs[0].id)];
-      const onlyA = [...a].filter((k) => !b.has(k));
-      const onlyB = [...b].filter((k) => !a.has(k));
-      out(`run #${runs[1].id} (${a.size} claims) vs run #${runs[0].id} (${b.size} claims): ${onlyA.length + onlyB.length === 0 ? 'IDENTICAL claim sets (deterministic)' : 'DIFFERENT'}`);
-      for (const k of onlyA) out(`  only in #${runs[1].id}: ${k}`);
-      for (const k of onlyB) out(`  only in #${runs[0].id}: ${k}`);
+      const { and, eq } = await import('drizzle-orm');
+      // Rules claims must be identical run to run (determinism criterion). LLM claims are
+      // reported separately: the model is not deterministic, and that layer is additive.
+      const keys = async (runId: number, source: string) =>
+        new Set((await db.select({ k: schema.claims.claimKey }).from(schema.claims).where(and(eq(schema.claims.testRunId, runId), eq(schema.claims.source, source)))).map((r) => r.k));
+      for (const source of ['rules', 'llm']) {
+        const [a, b] = [await keys(runs[1].id, source), await keys(runs[0].id, source)];
+        const onlyA = [...a].filter((k) => !b.has(k));
+        const onlyB = [...b].filter((k) => !a.has(k));
+        const same = onlyA.length + onlyB.length === 0;
+        out(`${source.padEnd(5)} run #${runs[1].id} (${a.size}) vs run #${runs[0].id} (${b.size}): ${same ? 'IDENTICAL' : 'DIFFERENT'}${source === 'rules' ? (same ? ' -> deterministic' : ' -> NOT deterministic, investigate') : ' (model layer; differences are expected)'}`);
+        for (const k of onlyA) out(`  only in #${runs[1].id}: ${k}`);
+        for (const k of onlyB) out(`  only in #${runs[0].id}: ${k}`);
+      }
       break;
     }
     default:

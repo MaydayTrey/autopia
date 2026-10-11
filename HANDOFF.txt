@@ -180,6 +180,21 @@ REPRODUCTION ON LIVE FEEDS (2026-10-11, commits ef42d76 + next)
   scripts/inspect-repro.ts <ids> re-executes stored trials and prints
   stored vs fresh signatures: use it whenever a claim is rejected.
 
+STATE AS OF 2026-10-12 (all three tools on battery 1.2.0, commit f679cac+)
+  run #16 forecast     128 trials -> 107 verified, 0 rejected, 2 spec + 2 sibling div.
+  run #17 air-quality   69 trials ->  61 verified, 0 rejected, 4 divergences
+  run #18 NWS          191 trials -> 177 verified, 0 rejected, 6 sibling divergences
+  Determinism (NWS #15 vs #18): all 169 RULES claims identical; the
+  only differences were 2 LLM claims. compare-runs now reports the two
+  layers separately; the rules layer is the determinism criterion.
+  New cross-vendor and cross-sibling facts worth knowing:
+  - NWS rejects unknown query params (400); Open-Meteo ignores them.
+  - NWS requires a User-Agent header (403 without); its declared
+    API-Key header is not enforced. Both verified on 5 endpoints.
+  - past_days 920: forecast rejects (real limit 93), air-quality
+    accepts (real limit 5031). Same vendor, same param name,
+    different limits; flagged as a sibling divergence on both.
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,
