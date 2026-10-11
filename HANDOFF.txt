@@ -133,6 +133,11 @@ THIRD TARGET: National Weather Service (targets/nws.json, commit 9f7c0bb)
   Limitation seen: NWS required params are all PATH params, which the
   battery does not mutate in v1, so no required_omitted claims there.
   Battery v1.1.0 adds boundary_far_above_max (10x documented max).
+  Run #11 (air-quality, battery 1.1.0): the new probe produced a
+  mechanical rules divergence ("920 accepted vs documented max 92")
+  beside the LLM's 0..5031 reading, and sibling comparison now works
+  in both directions (air-quality 'ignores unknown params' flagged
+  against NWS 'rejects'). 58 verified, 0 rejected.
 
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.

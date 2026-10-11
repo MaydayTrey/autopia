@@ -93,7 +93,9 @@ export function tagAgainstSiblings(c: CandidateClaim, siblings: SiblingIndex): C
   const others = siblings.get(key) ?? [];
   const disagree = others.filter((o) => o.verdict !== c.verdict && o.verdict !== 'observes');
   if (disagree.length === 0) return c;
-  return { ...c, diverges_from_sibling: true, sibling_note: disagree.map((o) => `${o.tool}: ${o.verdict}`).join('; ') };
+  // One entry per tool+verdict: a sibling with six endpoints should not be listed six times.
+  const note = [...new Set(disagree.map((o) => `${o.tool}: ${o.verdict}`))].join('; ');
+  return { ...c, diverges_from_sibling: true, sibling_note: note };
 }
 
 /** Mechanical spec comparison where the spec has an opinion. */

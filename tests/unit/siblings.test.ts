@@ -32,7 +32,8 @@ test('siblingKey drops the endpoint from rules keys and ignores LLM keys', () =>
 
 test('tagAgainstSiblings flags opposite verdicts on the same probe, ignores agreement and observes', () => {
   const siblings: SiblingIndex = new Map([
-    ['rule:extra_field:-', [{ tool: 'forecast', verdict: 'rejects', statement: 'x' }, { tool: 'marine', verdict: 'accepts', statement: 'y' }]],
+    // forecast appears twice (two endpoints); the note must list it once
+    ['rule:extra_field:-', [{ tool: 'forecast', verdict: 'rejects', statement: 'x' }, { tool: 'forecast', verdict: 'rejects', statement: 'x2' }, { tool: 'marine', verdict: 'accepts', statement: 'y' }]],
     ['rule:bad_auth:-', [{ tool: 'forecast', verdict: 'accepts', statement: 'z' }]],
     ['rule:method_head:-', [{ tool: 'forecast', verdict: 'observes', statement: 'w' }]],
   ]);
