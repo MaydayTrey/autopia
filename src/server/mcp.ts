@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 /**
  * Stage M5: the MCP SERVER. Read-only query tools over the compendium
- * (docs/compendium-spec.txt section 8). Talks MCP over stdio; logs go to
- * stderr so stdout stays clean.
+ * (docs/compendium-spec.txt section 8). Logs go to stderr so stdout stays
+ * clean for the stdio transport.
  *
  * Every response includes the EVIDENCE (trial references) behind each claim.
  *
- * Register in an MCP client (e.g. Claude Code) as:
- *   command: npx   args: ["tsx", "C:/Users/sunwa/Desktop/Autopia/src/server/mcp.ts"]
+ * Transports:
+ *   default        stdio: a client launches this process locally (no auth).
+ *   --http [port]  Streamable HTTP at POST /mcp (stateless: one transport per
+ *                  request). Default port 4200, or AUTOPIA_MCP_PORT.
  *
- * PGlite caveat: one process at a time. Stop the worker before starting this.
+ * Identity on HTTP: `Authorization: Bearer ak_...` per-user keys (src/db/keys.ts,
+ * hashed, per-day quota, revocable), or the legacy AUTOPIA_MCP_TOKEN admin
+ * token. Every tool call is logged to api_calls (key, tool, target, ok, ms).
+ * With neither keys nor a token configured the endpoint is open and says so.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -18,6 +23,7 @@ import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
 import { listTools, listVersions, resolveTool, searchClaims, toolKnowledge, versionDiff } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
+import { logCall, verifyKey } from '../db/keys.js';
 import { loadEnv } from '../worker/env.js';
 import { log } from '../worker/log.js';
 
@@ -26,83 +32,83 @@ loadEnv();
 const text = (v: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(v, null, 2) }] });
 const fail = (msg: string) => ({ content: [{ type: 'text' as const, text: JSON.stringify({ error: msg }) }], isError: true });
 
-export function buildServer(): McpServer {
+export interface ServerContext {
+  /** api_keys.id of the caller; null for the admin token, stdio, or an open endpoint. */
+  keyId: number | null;
+  /** When false (stdio), calls are not logged. */
+  logCalls: boolean;
+}
+
+type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
+
+export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false }): McpServer {
   const server = new McpServer({ name: 'autopia', version: '0.1.0' });
 
-  server.registerTool(
-    'list_tools',
-    { title: 'List tools', description: 'Catalogue of tools (APIs) in the compendium with version and verified-claim counts.', inputSchema: {} },
-    async () => text(await listTools(await getDb())),
-  );
+  /** Registers a tool with call logging (who, what, ok, ms) around the handler. */
+  const tool = <A extends Record<string, unknown>>(name: string, def: { title: string; description: string; inputSchema: Record<string, z.ZodTypeAny> }, handler: (args: A) => Promise<ToolResult>) => {
+    server.registerTool(name, def, (async (args: A) => {
+      const t0 = performance.now();
+      let ok = false;
+      try {
+        const res = await handler(args);
+        ok = !res.isError;
+        return res;
+      } finally {
+        if (ctx.logCalls) {
+          const toolArg = (args as unknown as { tool?: unknown }).tool;
+          const target = typeof toolArg === 'string' ? toolArg : null;
+          logCall(await getDb(), ctx.keyId, name, target, ok, performance.now() - t0).catch((e) => log.warn('mcp', `usage log failed: ${(e as Error).message}`));
+        }
+      }
+    }) as never);
+  };
 
-  server.registerTool(
-    'list_versions',
-    { title: 'List versions', description: 'Versions of one tool, newest first. Each version is fingerprinted by its spec hash.', inputSchema: { tool: z.string().describe('tool name, e.g. open-meteo-forecast') } },
-    async ({ tool }) => {
-      const db = await getDb();
-      const t = await resolveTool(db, tool);
-      if (!t) return fail(`no such tool: ${tool}`);
-      const vs = await listVersions(db, t.id);
-      return text(vs.map((v) => ({ id: v.id, label: v.versionLabel, spec_url: v.specUrl, spec_hash: v.specHash, discovered_at: v.discoveredAt })));
-    },
-  );
+  tool('list_tools', { title: 'List tools', description: 'Catalogue of tools (APIs) in the compendium with version and verified-claim counts.', inputSchema: {} }, async () => text(await listTools(await getDb())));
 
-  server.registerTool(
+  tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Versions of one tool, newest first. Each version is fingerprinted by its spec hash.', inputSchema: { tool: z.string().describe('tool name, e.g. open-meteo-forecast') } }, async ({ tool }) => {
+    const db = await getDb();
+    const t = await resolveTool(db, tool);
+    if (!t) return fail(`no such tool: ${tool}`);
+    const vs = await listVersions(db, t.id);
+    return text(vs.map((v) => ({ id: v.id, label: v.versionLabel, spec_url: v.specUrl, spec_hash: v.specHash, discovered_at: v.discoveredAt })));
+  });
+
+  tool<{ tool: string; version?: number }>(
     'get_tool_knowledge',
-    {
-      title: 'Get tool knowledge',
-      description: 'All VERIFIED behavioral claims for a tool (latest version by default), grouped by kind, divergences from the spec flagged, each with its evidence trials.',
-      inputSchema: { tool: z.string(), version: z.number().int().optional().describe('tool_version id; default latest') },
-    },
+    { title: 'Get tool knowledge', description: 'All VERIFIED behavioral claims for a tool (latest version by default), grouped by kind, divergences from the spec flagged, each with its evidence trials.', inputSchema: { tool: z.string(), version: z.number().int().optional().describe('tool_version id; default latest') } },
     async ({ tool, version }) => {
       const k = await toolKnowledge(await getDb(), tool, version ?? null, false);
       return k ? text(k) : fail(`no such tool: ${tool}`);
     },
   );
 
-  server.registerTool(
+  tool<{ tool: string; version?: number }>(
     'get_divergences',
-    {
-      title: 'Get divergences',
-      description: 'Only the verified claims where real behavior CONTRADICTS the tool\'s spec. The high-value view.',
-      inputSchema: { tool: z.string(), version: z.number().int().optional() },
-    },
+    { title: 'Get divergences', description: "Only the verified claims where real behavior CONTRADICTS the tool's spec. The high-value view.", inputSchema: { tool: z.string(), version: z.number().int().optional() } },
     async ({ tool, version }) => {
       const k = await toolKnowledge(await getDb(), tool, version ?? null, true);
       return k ? text(k) : fail(`no such tool: ${tool}`);
     },
   );
 
-  server.registerTool(
+  tool<{ query: string; tool?: string; limit?: number }>(
     'search_claims',
-    {
-      title: 'Search claims',
-      description: 'Search verified claims with a natural-language question, e.g. "is latitude required on /v1/forecast". Optionally restrict to one tool.',
-      inputSchema: { query: z.string(), tool: z.string().optional(), limit: z.number().int().min(1).max(50).optional() },
-    },
+    { title: 'Search claims', description: 'Search verified claims with a natural-language question, e.g. "is latitude required on /v1/forecast". Optionally restrict to one tool.', inputSchema: { query: z.string(), tool: z.string().optional(), limit: z.number().int().min(1).max(50).optional() } },
     async ({ query, tool, limit }) => text(await searchClaims(await getDb(), query, tool ?? null, limit ?? 20)),
   );
 
-  server.registerTool(
+  tool<{ tool: string; version?: number }>(
     'get_tool_docs',
-    {
-      title: 'Get tool docs',
-      description: 'A Markdown behavior sheet for a tool, generated from verified claims: spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior. Each line cites the trial ids that back it. Use this when you are about to call the tool and want its real behavior in one read.',
-      inputSchema: { tool: z.string(), version: z.number().int().optional() },
-    },
+    { title: 'Get tool docs', description: 'A Markdown behavior sheet for a tool, generated from verified claims: spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior. Each line cites the trial ids that back it. Use this when you are about to call the tool and want its real behavior in one read.', inputSchema: { tool: z.string(), version: z.number().int().optional() } },
     async ({ tool, version }) => {
       const md = await renderToolDocs(await getDb(), tool, version ?? null);
       return md ? { content: [{ type: 'text' as const, text: md }] } : fail(`no such tool: ${tool}`);
     },
   );
 
-  server.registerTool(
+  tool<{ tool: string; from_version: number; to_version: number }>(
     'get_version_diff',
-    {
-      title: 'Get version diff',
-      description: 'Changelog of verified behavior between two versions of a tool: changed / added / removed claims.',
-      inputSchema: { tool: z.string(), from_version: z.number().int(), to_version: z.number().int() },
-    },
+    { title: 'Get version diff', description: 'Changelog of verified behavior between two versions of a tool: changed / added / removed claims.', inputSchema: { tool: z.string(), from_version: z.number().int(), to_version: z.number().int() } },
     async ({ tool, from_version, to_version }) => {
       const d = await versionDiff(await getDb(), tool, from_version, to_version);
       return d ? text(d) : fail(`no such tool: ${tool}`);
@@ -112,12 +118,6 @@ export function buildServer(): McpServer {
   return server;
 }
 
-/**
- * Two transports:
- *   default        stdio: a client launches this process locally.
- *   --http [port]  Streamable HTTP at POST /mcp (stateless: one transport per request),
- *                  for agents elsewhere. Default port 4200, or AUTOPIA_MCP_PORT.
- */
 async function main() {
   const httpIdx = process.argv.indexOf('--http');
   if (httpIdx === -1) {
@@ -144,6 +144,7 @@ async function main() {
   const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+
   // Liveness: answers within 5s no matter what the database is doing, so a platform health
   // check never hangs. The body reports db state; 200 means "process is up and serving".
   app.get('/healthz', async (_req, res) => {
@@ -153,16 +154,33 @@ async function main() {
     ]);
     res.json({ ok: true, db });
   });
-  // Optional bearer-token guard. Set AUTOPIA_MCP_TOKEN on a public deployment; unset = open.
-  const token = process.env.AUTOPIA_MCP_TOKEN?.trim();
-  if (token) log.info('mcp', 'bearer token required on /mcp');
-  else log.warn('mcp', 'AUTOPIA_MCP_TOKEN not set: /mcp is open to anyone who can reach it');
+
+  const adminToken = process.env.AUTOPIA_MCP_TOKEN?.trim() || null;
+  const openEndpoint = process.env.AUTOPIA_MCP_OPEN === '1';
+  if (adminToken) log.info('mcp', 'admin token configured; per-user ak_ keys also accepted on /mcp');
+  else if (openEndpoint) log.warn('mcp', 'AUTOPIA_MCP_OPEN=1: /mcp accepts unauthenticated calls');
+  else log.info('mcp', 'per-user ak_ keys required on /mcp (no admin token configured)');
+
   app.post('/mcp', async (req, res) => {
-    if (token && req.headers.authorization !== `Bearer ${token}`) {
+    // Identity: per-user key, admin token, or (explicitly) open.
+    const auth = req.headers.authorization ?? '';
+    const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    let ctx: ServerContext = { keyId: null, logCalls: true };
+    if (presented.startsWith('ak_')) {
+      const v = await verifyKey(await getDb(), presented).catch((e: Error) => ({ ok: false as const, status: 401 as const, reason: `key check failed: ${e.message}` }));
+      if (!v.ok) {
+        res.status(v.status).json({ error: v.reason });
+        return;
+      }
+      ctx = { keyId: v.key.id, logCalls: true };
+    } else if (adminToken && presented === adminToken) {
+      ctx = { keyId: null, logCalls: true };
+    } else if (!openEndpoint) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
-    const server = buildServer();
+
+    const server = buildServer(ctx);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
       transport.close().catch(() => undefined);

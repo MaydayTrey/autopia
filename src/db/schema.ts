@@ -139,6 +139,40 @@ export const claimDiffs = pgTable('claim_diffs', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * API KEYS: identity for consumers of the HTTP MCP server. Only a hash is
+ * stored; the key itself is shown once at creation. `prefix` (first chars)
+ * is for display and revocation by name.
+ */
+export const apiKeys = pgTable('api_keys', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  name: text('name').notNull().unique(),
+  keyHash: text('key_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  quotaPerDay: integer('quota_per_day').notNull().default(2000),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});
+
+/** One row per MCP tool call: who, what, success, latency. The usage data behind any pricing decision. */
+export const apiCalls = pgTable(
+  'api_calls',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    keyId: bigint('key_id', { mode: 'number' }).references(() => apiKeys.id), // null = legacy admin token
+    tool: text('tool').notNull(),
+    target: text('target'), // the tool-name argument when present, for per-API demand
+    ok: boolean('ok').notNull(),
+    ms: integer('ms').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('api_calls_key_time_idx').on(t.keyId, t.createdAt)],
+);
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type ApiCall = typeof apiCalls.$inferSelect;
+
 export type Tool = typeof tools.$inferSelect;
 export type ToolVersion = typeof toolVersions.$inferSelect;
 export type TestRun = typeof testRuns.$inferSelect;

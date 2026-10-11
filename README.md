@@ -147,9 +147,25 @@ fly secrets set DATABASE_URL="postgres://..." AUTOPIA_MCP_TOKEN="$(openssl rand 
 fly deploy
 ```
 
-The server listens on `/mcp` with `GET /healthz` for the platform check. With
-`AUTOPIA_MCP_TOKEN` set, every `/mcp` request needs `Authorization: Bearer <token>`; unset, the
-endpoint is open and the server logs a warning. The image also contains the worker: run it as a
+The server listens on `/mcp` with `GET /healthz` for the platform check.
+
+**Identity: per-user keys.** Each consumer gets their own key, which is how the server knows who
+is asking, rate-limits them, and can revoke them:
+
+```bash
+npm run autopia -- keys create alice --quota 2000
+```
+
+The key (`ak_...`) is printed once; only its hash is stored. Users send it as
+`Authorization: Bearer ak_...`. `keys list` shows prefixes, quotas, and call counts;
+`keys revoke <name-or-prefix>` disables one; a key over its daily quota gets 429. Every tool
+call is logged with the key, the tool, the target asked about, success, and latency, and
+`npm run autopia -- usage --days 7` summarizes it per key and per most-asked-about tool. That
+log is the data behind any future pricing decision.
+
+`AUTOPIA_MCP_TOKEN`, if set, still works as an admin token (calls logged without a key). With
+no keys presented and no admin token configured, `/mcp` refuses everything unless
+`AUTOPIA_MCP_OPEN=1` is set explicitly. The image also contains the worker: run it as a
 scheduled machine or by hand with `fly ssh console -C "npm run run-all"`, with
 `ANTHROPIC_API_KEY` set as a secret if the LLM pass should run there. Railway and Render work
 the same way from the same `Dockerfile`.

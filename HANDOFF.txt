@@ -351,6 +351,50 @@ TARGETS 6-11 (2026-10-12): frankfurter (finance, run #29: 96 verified,
   Probe method: scripts in this session fetched candidate URLs and
   parsed them; keep looking for 'openapi: 3' + keyless + read-only.
 
+PRODUCT DIRECTION AGREED 2026-10-12 (Trey), in this order:
+  1. PER-USER API KEYS + USAGE LOG (BUILT 2026-10-12): src/db/keys.ts
+     + migration 0002 (api_keys, api_calls). mcp.ts --http accepts
+     Bearer ak_... (hash lookup, revoked check, per-day quota -> 429)
+     or the admin token; with neither configured /mcp refuses unless
+     AUTOPIA_MCP_OPEN=1. Every tool call logged (key, tool, target
+     arg, ok, ms). CLI: keys create <name> [--quota N] (prints the key
+     ONCE), keys list, keys revoke <name|prefix>, usage [--days N].
+     Tests: tests/unit/keys.test.ts, tests/integration/mcp-keys.test.ts.
+     NOTE: Render still uses the admin token; mint a key per person
+     with 'keys create' against Neon (DATABASE_URL in .env) and hand
+     it out; the admin token can be retired later.
+     (original plan follows) api_keys table
+     (hash only, prefix for display, per-day quota, revocation) and
+     api_calls log (key, tool, ok, ms). Bearer ak_... keys on /mcp;
+     the legacy AUTOPIA_MCP_TOKEN keeps working as 'admin'. CLI: keys
+     create/list/revoke, usage. The usage log is the data for any
+     pricing decision later; do NOT build billing yet.
+  2. USER-REQUESTED TARGETS (next): a keyed user submits a target
+     file; server checks scope (OpenAPI 3, keyless, read-only, domain
+     not abused), runs it RULES-ONLY itself (no model cost), weekly
+     LLM pass covers it. Per-key quotas on targets/trials per day.
+     Do not accept users' model keys; 13 cents is not worth handling
+     their secret. The HTTP traffic we send is the real cost/risk.
+  3. CONTRIBUTOR-VERIFIED TIER for keyed/paid APIs (last). Design:
+     - The contributor runs the open-source worker LOCALLY with their
+       own API key and their own model key. Nothing secret reaches us.
+     - Upload contains ONLY: claims + evidence as status code and
+       SIGNATURE (type shape, no values) + probe ids. NO response
+       bodies, NO error-message text, NO header values. Shapes cannot
+       carry names/account numbers. (Trey's concern: we must not rely
+       on scrubbing bodies; so never receive them.)
+     - Claim statements are the one remaining leak path: the local
+       worker shows every statement for approval before upload, and
+       the server scrubs/rejects statements containing emails, tokens,
+       long digit runs.
+     - Sheets label the tier: 'contributor-verified by key <prefix> on
+       <date>, not re-verified since; evidence limited to status and
+       shape'. Server cannot re-run keyed trials; the date is the
+       honesty mechanism.
+     - PREREQUISITE before any keyed target even locally: redact
+       credential headers from stored trial inputs (today target
+       headers are copied into every trial row).
+
 FIRST TARGET: Open-Meteo forecast (targets/open-meteo-forecast.json)
   1 GET endpoint, 23 params, 126 trials/run, ~45s/run incl.
   reproduction, well under their free-tier limits (concurrency 2,

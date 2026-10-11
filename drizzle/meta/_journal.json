@@ -15,6 +15,13 @@
       "when": 1791695334763,
       "tag": "0001_smart_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791741088770,
+      "tag": "0002_spooky_jackal",
+      "breakpoints": true
     }
   ]
 }

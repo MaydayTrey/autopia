@@ -31,6 +31,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
 import { pruneRuns } from '../db/retention.js';
+import { createKey, listKeys, revokeKey, usageSummary } from '../db/keys.js';
 
 loadEnv();
 
@@ -44,6 +45,8 @@ const { values, positionals } = parseArgs({
     'max-trials': { type: 'string' },
     'prune-days': { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
+    quota: { type: 'string' },
+    days: { type: 'string' },
     divergences: { type: 'boolean', default: false },
     version: { type: 'string' },
     tool: { type: 'string' },
@@ -198,6 +201,38 @@ async function main() {
         out(`  prune (keep ${values['prune-days']} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
       }
       if (failed) process.exitCode = 1;
+      break;
+    }
+    case 'keys': {
+      // keys create <name> [--quota N] | keys list | keys revoke <name-or-prefix>
+      const db = await getDb();
+      const sub = args[0];
+      if (sub === 'create') {
+        const { key, row } = await createKey(db, need(args[1], 'key name'), values.quota ? Number(values.quota) : undefined);
+        out(`created key "${row.name}" (prefix ${row.prefix}, quota ${row.quotaPerDay}/day).`);
+        out(`The key is shown ONCE. Give it to the user; we store only its hash:`);
+        out(key);
+      } else if (sub === 'list') {
+        for (const k of await listKeys(db)) out(`#${k.id} ${k.name.padEnd(24)} ${k.prefix}  quota ${String(k.quota_per_day).padStart(5)}/day  calls ${String(k.calls).padStart(6)}  last used ${k.last_used_at?.toISOString() ?? '-'}${k.revoked_at ? `  REVOKED ${k.revoked_at.toISOString()}` : ''}`);
+      } else if (sub === 'revoke') {
+        const row = await revokeKey(db, need(args[1], 'key name or prefix'));
+        out(row ? `revoked "${row.name}" (${row.prefix})` : 'no active key with that name or prefix');
+      } else {
+        throw new Error('usage: keys create <name> [--quota N] | keys list | keys revoke <name-or-prefix>');
+      }
+      break;
+    }
+    case 'usage': {
+      // usage [--days N]: calls per key per tool, and the most-asked-about targets
+      const db = await getDb();
+      const u = await usageSummary(db, values.days ? Number(values.days) : 7);
+      out(`usage since ${u.since.toISOString()}`);
+      for (const r of u.byKeyTool) out(`  ${r.name.padEnd(24)} ${r.tool.padEnd(20)} calls ${String(r.calls).padStart(6)}  errors ${String(r.errors).padStart(4)}  avg ${String(r.avgMs).padStart(5)}ms`);
+      if (u.byTarget.length) {
+        out('  most asked-about tools:');
+        for (const t of u.byTarget) out(`    ${String(t.target).padEnd(28)} ${t.calls}`);
+      }
+      if (!u.byKeyTool.length) out('  no calls recorded');
       break;
     }
     case 'prune': {

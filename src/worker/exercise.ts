@@ -23,6 +23,8 @@ export interface ExerciseOptions {
   fetchImpl?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
   onProgress?: (done: number, total: number) => void;
+  /** Abort the run if this many of the first trials all fail at the transport level (default 5). */
+  unreachableAfter?: number;
 }
 
 export interface PlannedTrial extends Mutation {
@@ -71,9 +73,13 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
   let next = 0;
   let done = 0;
   let nextSlot = 0;
+  let transportErrors = 0;
+  let aborted: Error | null = null;
+  const UNREACHABLE_AFTER = opts.unreachableAfter ?? 5;
 
   async function worker() {
     while (true) {
+      if (aborted) return;
       const i = next++;
       if (i >= plan.length) return;
       const t = plan[i];
@@ -83,6 +89,12 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
       if (wait > 0) await sleep(wait);
 
       const { out, row } = await runOne(t.input, opts);
+      // Unreachable target: if the first few trials all fail at the transport level (timeouts,
+      // DNS, refused), stop instead of spending hours timing out through the whole plan.
+      if (out.transportError) transportErrors++;
+      if (done + 1 <= UNREACHABLE_AFTER && transportErrors >= UNREACHABLE_AFTER && !aborted) {
+        aborted = new Error(`target unreachable: the first ${UNREACHABLE_AFTER} trials all failed at the transport level (last: ${out.transportError}); aborting the run`);
+      }
       const values: NewTrial = {
         testRunId,
         endpoint: t.endpoint,
@@ -100,6 +112,11 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, plan.length) }, worker));
+  const abortErr = aborted as Error | null; // assigned inside the worker closures; TS cannot see that
+  if (abortErr) {
+    log.error('exercise', abortErr.message);
+    throw abortErr;
+  }
   const trials = results.filter((r): r is Trial => !!r);
   const rateLimited = trials.filter((t) => t.errorText === 'rate_limited').length;
   if (rateLimited) log.warn('exercise', `${rateLimited} trial(s) ended rate-limited; claims will skip them`);

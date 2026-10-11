@@ -62,7 +62,8 @@ before(async () => {
   port = await freePort();
   child = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server', 'mcp.ts'), '--http', String(port)], {
     // DATABASE_URL: '' pins the child to its throwaway PGlite even when .env points at a real Postgres.
-    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', DATABASE_URL: '' },
+    // AUTOPIA_MCP_OPEN=1: this test covers the explicitly open endpoint; keys are covered in mcp-keys.test.ts
+    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', DATABASE_URL: '', AUTOPIA_MCP_TOKEN: '', AUTOPIA_MCP_OPEN: '1' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   await waitFor(`http://127.0.0.1:${port}/healthz`, 30_000);
