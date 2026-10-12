@@ -225,6 +225,12 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       params unvalidated) with the trial evidence. A fixed spec reaches
       every agent with no plugin. Needs Trey's GitHub account; draft the
       issue text from get_divergences.
+   6-REGISTRY PUBLISHED 2026-10-13: io.github.MaydayTrey/autopia v0.3.0 is
+      active in the MCP Registry (registry.modelcontextprotocol.io). Versions
+      are immutable: bump server.json version with every plugin release and
+      run mcp-publisher publish again (binary lives untracked in the repo
+      folder; login token in ~/.config/mcp-publisher). Still open: the
+      Claude directory submission (claude.ai/directory/manage).
    6. PREPARED (reviewer): distribution. server.json at the repo root for the
       MCP Registry (io.github.MaydayTrey/autopia, streamable-http remote,
       v0.3.0); docs/distribution.md has the verified, exact steps for the
