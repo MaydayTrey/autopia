@@ -146,7 +146,7 @@ test('hook: unrelated commands, unknown hosts and missing keys produce no inject
     const env401 = { AUTOPIA_MCP_URL: `http://127.0.0.1:${refusingPort}/mcp`, AUTOPIA_API_KEY: '', CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY: '' };
     const note = await runHook({ session_id: 's5', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, env401);
     assert.ok(note.out, `expected a setup note; stderr: ${note.err}`);
-    assert.match(note.out!.hookSpecificOutput.additionalContext, /requires a key and none is configured/);
+    assert.match(note.out!.hookSpecificOutput.additionalContext, /refused the anonymous read/);
     assert.match(note.out!.hookSpecificOutput.additionalContext, /claude plugin configure autopia/);
     const again = await runHook({ session_id: 's5', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, env401);
     assert.equal(again.out, null, 'the setup note is given once per session');
