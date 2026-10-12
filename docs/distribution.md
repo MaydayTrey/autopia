@@ -69,7 +69,7 @@ registry entry exists.
 
 ## 4. Upstream: GitHub's OpenAPI description
 
-`docs/upstream/github-rest-api-description.md` is a ready-to-file issue for the
-`page`/`per_page` integer and `sort`/`order`/`direction` enum divergences. File it at
-`github.com/github/rest-api-description/issues/new` from the maintainer's account, linking the
-site's GitHub page for the evidence.
+The divergences on page/per_page (typed integer, unvalidated) and sort/order/direction (enum,
+unvalidated) are worth filing against github/rest-api-description as a "Schema Inaccuracy",
+linking the public GitHub page of this site for the evidence. The maintainer files it from
+his own account; the text is not kept in this repository.

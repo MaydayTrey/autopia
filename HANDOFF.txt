@@ -154,7 +154,7 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       Smoke-tested on the hosted server with GitHub 422 "Validation Failed"
       on issues: first hit was the issue_field_values claim. Plugin 0.3.0.
       Upstream issue draft for github/rest-api-description written to
-      docs/upstream/github-rest-api-description.md (Trey files it).
+      (issue text handed to Trey in chat; not kept in the repo) (Trey files it).
    3. DONE (Trey said yes 2026-10-13): ANONYMOUS READS. /mcp with no
       credential (or a bearer that is not an ak_ key, e.g. an unexpanded
       ${user_config.autopia_key}) is identity 'anon': all read tools, under
@@ -202,7 +202,7 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       (configure-pages enablement:true tries to switch Pages on; if the
       deploy step fails the first time, Trey enables Settings -> Pages ->
       Source: GitHub Actions and re-runs). Site URL: https://maydaytrey.
-      github.io/autopia/ . (b) docs/upstream/github-rest-api-description.md
+      github.io/autopia/ . (b) (issue text handed to Trey in chat; not kept in the repo)
       is the ready-to-file issue; Trey files it from his account.
    5-old. ORIGINAL NOTE:
       (a) Static HTML per tool/endpoint/claim, indexable, so a web search
