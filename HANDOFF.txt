@@ -25,6 +25,17 @@ STATE
   (~15 cents per tool per run). A traffic flood cannot create a bill: the
   free tiers throttle or suspend, and the anonymous caps + cache sit in
   front of them. Set a monthly spend limit in the Anthropic console anyway.
+  KILL SWITCH (2026-10-13): three levels, all reversible, none can bill.
+    1. AUTOPIA_OFFLINE=1 in the Render env: everything but /healthz -> 503,
+       DB never opened (src/server/mcp.ts; tests/integration/mcp-offline).
+    2. npm run kill | revive | kill:status (scripts/kill-switch.ts): Render
+       POST /v1/services/{id}/suspend|resume and Neon POST .../endpoints/
+       {id}/suspend|start via RENDER_API_KEY / NEON_API_KEY in .env (service
+       and endpoint auto-discovered); without keys it prints the dashboard
+       steps. Trey has NOT created those API keys yet; the manual path works
+       today.
+    3. Disable the run-all-llm workflow (the only paid call) + Anthropic
+       spend limit.
   USAGE: 'npm run autopia -- usage --days 7' (per key/tool from api_calls;
   anonymous calls land with key_id null, same bucket as the admin token:
   TODO add an identity column so anon traffic is visible on its own);

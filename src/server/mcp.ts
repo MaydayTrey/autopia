@@ -259,7 +259,25 @@ async function main() {
 
   // Liveness: answers within 5s no matter what the database is doing, so a platform health
   // check never hangs. The body reports db state; 200 means "process is up and serving".
+  // KILL SWITCH. AUTOPIA_OFFLINE=1 (set in the host's environment) makes every endpoint except
+  // /healthz answer 503 immediately, without opening the database: a one-variable way to stop
+  // serving under a traffic flood while the process stays up. Unset it to resume.
+  const offline = process.env.AUTOPIA_OFFLINE === '1';
+  const offlineMessage = process.env.AUTOPIA_OFFLINE_MESSAGE || 'Autopia is temporarily offline. The static site at https://maydaytrey.github.io/autopia/ still serves the sheets.';
+  if (offline) log.warn('mcp', 'AUTOPIA_OFFLINE=1: refusing all requests except /healthz');
+  app.use((req, res, next) => {
+    if (offline && req.path !== '/healthz') {
+      res.status(503).set('retry-after', '3600').json({ error: 'offline', message: offlineMessage });
+      return;
+    }
+    next();
+  });
+
   app.get('/healthz', async (_req, res) => {
+    if (offline) {
+      res.json({ ok: true, offline: true, db: 'not checked' });
+      return;
+    }
     const db = await Promise.race([
       getDb().then(() => 'ok' as const, (e: Error) => `error: ${e.message}`),
       new Promise<string>((r) => setTimeout(() => r('pending'), 5_000)),

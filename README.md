@@ -109,6 +109,8 @@ Configuration lives in a local `.env` file (gitignored), read on startup:
 | `AUTOPIA_MCP_OPEN` | `1` opens `/mcp` without any credential; tests only, never in a deployment |
 | `AUTOPIA_MCP_PORT` | HTTP server port, default 4200 |
 | `AUTOPIA_LOG` | `debug` for per-trial logs |
+| `AUTOPIA_OFFLINE` | `1` makes the HTTP server answer 503 to everything but `/healthz` without opening the database (the kill switch) |
+| `RENDER_API_KEY`, `NEON_API_KEY` | optional; let `npm run kill` / `npm run revive` suspend and resume the hosting from one command |
 
 Target files reference credentials as `${ENV_VAR}` in headers, so a committed target never
 contains a key.
@@ -199,6 +201,23 @@ plain-text `.md` twin and names the MCP call that returns the same thing live.
 `.github/workflows/pages.yml` builds it from the hosted database daily after the refresh (and
 on demand) and publishes to GitHub Pages. One-time setup: repository Settings -> Pages ->
 Source: GitHub Actions. The site is at `https://<owner>.github.io/<repo>/`.
+
+## Kill switch
+
+If traffic ever gets out of hand, there are three levels, each reversible, none of which can
+create a bill (Render and Neon have no card on file; the only billed account is the Anthropic
+key used by the weekly LLM pass, which has its own spend limit in the Anthropic console):
+
+1. **Stop serving, keep the process:** set `AUTOPIA_OFFLINE=1` in the Render service's
+   environment. Every request except `/healthz` gets 503 with a retry-after and the database is
+   never opened. The static site keeps serving the sheets. Remove the variable to resume.
+2. **Stop the hosting:** `npm run kill` suspends the Render web service and the Neon compute
+   endpoint through their APIs (needs `RENDER_API_KEY` and `NEON_API_KEY` in `.env`; the service
+   and endpoint are discovered automatically). `npm run revive` brings both back;
+   `npm run kill:status` shows the state. Without the keys the command prints the dashboard
+   steps instead.
+3. **Stop the spend:** disable the `run-all-llm` workflow under Actions. That is the only job
+   that calls a paid API.
 
 ## Keeping it current (automation)
 
