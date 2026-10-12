@@ -1,6 +1,50 @@
 ====================================================================
 AUTOPIA - HANDOFF FOR THE NEXT AGENT
 ====================================================================
+>>> END OF DAY 2026-10-13. READ THIS FIRST; the older stopping-point notes below are history. <<<
+
+STATE
+  origin/main is at or just behind local main (handoff-only commits may be
+  unpushed; 'git log origin/main..main' shows them). Suite: 144 tests green.
+  PUBLIC SURFACES (all live):
+    repo        https://github.com/MaydayTrey/autopia (public, audit clean,
+                CI: test on push/PR, run-all nightly, run-all-llm weekly,
+                pages daily 07:45 UTC)
+    server      https://autopia-mcp.onrender.com/mcp (Render free; anonymous
+                reads 30/min, 300/day per IP, 5,000/day global; 10-min
+                response cache; keys for request_target and /contribute)
+    site        https://maydaytrey.github.io/autopia/ (GitHub Pages; one page
+                per API and endpoint, errors.html, llms.txt, sitemap)
+    registry    io.github.MaydayTrey/autopia v0.3.0 in the MCP Registry
+    plugin      claude plugin install autopia --marketplace MaydayTrey/autopia
+                (0.3.0: scoped PreToolUse injection + error-path PostToolUse;
+                works with no key)
+    upstream    github/rest-api-description#7322 (Schema Inaccuracy, open)
+  COSTS: Render free (no card), Neon free (no card), GitHub free; the only
+  billed account is the Anthropic API key used by the weekly LLM pass
+  (~15 cents per tool per run). A traffic flood cannot create a bill: the
+  free tiers throttle or suspend, and the anonymous caps + cache sit in
+  front of them. Set a monthly spend limit in the Anthropic console anyway.
+  USAGE: 'npm run autopia -- usage --days 7' (per key/tool from api_calls;
+  anonymous calls land with key_id null, same bucket as the admin token:
+  TODO add an identity column so anon traffic is visible on its own);
+  Render dashboard -> Metrics/Logs for requests and bandwidth; Neon console
+  for compute hours; GitHub Insights -> Traffic for repo views/clones.
+
+NEXT (in order)
+  1. Request-body battery: a JSON-body executor path (POST with bodies,
+     content-type, required-field omission, wrong types, extra fields,
+     oversized bodies), then write endpoints against a scratch repo /
+     sandbox modes. This unlocks GitHub writes, LLM provider APIs
+     (/v1/messages), and SaaS targets. Battery first, targets second.
+  2. Claude directory submission (needs Trey's paid claude.ai plan):
+     claude.ai/directory/manage -> Plugin bundle (repo MaydayTrey/autopia,
+     path plugin, branch main); then the hosted server as an MCP connector.
+  3. Follow up #7322; file the second GitHub finding after a response.
+  4. Every plugin release: bump plugin.json AND server.json versions,
+     'mcp-publisher publish server.json', 'claude plugin update'.
+  5. Usage identity column (anon vs admin vs key) + a tiny /stats line.
+
 >>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 
 STATE OF THE WORKING TREE AT HANDOFF
