@@ -82,6 +82,7 @@ test('mcp over http: anonymous READS work under a per-IP limit; bad keys are 401
   assert.equal(limited.status, 429);
   assert.ok(Number(limited.headers.get('retry-after')) > 0);
   assert.match(await limited.text(), /rate limit \(4\/min\)/);
+  // Anonymous callers never get verbose previews, even when they ask (the response cache serves them compact).
   // The admin token is not subject to the anonymous limit.
   const mcp = new Client({ name: 'auth-test', version: '0.0.0' });
   await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${TOKEN}` } } }));

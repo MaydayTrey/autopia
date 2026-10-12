@@ -160,6 +160,16 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       (quota + request_target). Logging: anon calls land with key_id null,
       same as the admin token (usage summary merges them; add an identity
       column if that matters).
+   3a. COST GUARD (Trey: "I hope this doesn't hit 50k calls; that would run
+      through Render and Neon"): defaults lowered to 30/min, 300/day per IP,
+      5,000/day global; anonymous callers get no verbose previews and
+      capped page sizes; src/db/cache.ts memoizes read responses (sheets,
+      catalogue, knowledge, searches) for AUTOPIA_CACHE_TTL_MS (10 min), so
+      repeated anonymous calls never reach Neon. Sizing: 5k brief sheets/
+      day ~75MB egress, a few hundred DB round trips. Every sheet now ends
+      with "## What this compendium covers" (this API's probed endpoints;
+      other APIs by host; what is not probed anywhere; the fetch tools), so
+      a reader of one sheet knows what else it can ask for.
    3b. DONE (Trey's question 'isn't the whole sheet a waste of tokens?'):
       ENDPOINT-SCOPED SHEETS. get_tool_docs takes path (or a full URL as
       tool): docs.ts matchEndpoint() maps the concrete path to the covered

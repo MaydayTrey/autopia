@@ -49,7 +49,8 @@ carries over.
 ## Keys
 
 The hosted server at `autopia-mcp.onrender.com` answers reads anonymously under a per-IP limit
-(60 a minute, 2,000 a day). A per-user key (`ak_...`) gives you your own quota and the ability
+(30 a minute, 300 a day) and a global daily budget; when the budget is spent, the hook simply
+injects nothing until it resets. A per-user key (`ak_...`) gives you your own quota and the ability
 to request new targets. Keys are issued by the maintainer; open an issue on the repository with
 the name you want on the key. Self-service issuance is on the roadmap.
 

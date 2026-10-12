@@ -12,7 +12,8 @@
  * Every line ends with the trial ids that back it.
  */
 import type { Db } from './client.js';
-import { toolKnowledge, type ClaimView } from './queries.js';
+import { listTools, toolKnowledge, type ClaimView } from './queries.js';
+import { memo } from './cache.js';
 
 /** Inline evidence: the first few trial ids, then a count. 38 ids on one line is noise at the moment of use; get_tool_knowledge has them all. */
 const EVIDENCE_INLINE_MAX = 8;
@@ -219,6 +220,29 @@ export function matchEndpoint(path: string, endpoints: string[]): string | null 
   return best?.ep ?? null;
 }
 
+/**
+ * What the compendium can and cannot tell the reader, appended to every sheet: which endpoints
+ * of this API are probed (anything else on the host is not), which other APIs exist (by host),
+ * what is not probed anywhere yet, and the tools to fetch more. Without this a reader of one
+ * sheet cannot know what else is safe to ask for. The catalogue part is cached.
+ */
+async function coverageFooter(db: Db, tool: string, allEndpoints: string[]): Promise<string[]> {
+  const others = await memo('catalogue', async () => {
+    const all = await listTools(db);
+    return all.filter((t) => t.verified_claims > 0).map((t) => ({ name: t.name, hosts: t.hosts as string[] }));
+  }).catch(() => [] as { name: string; hosts: string[] }[]);
+  const rest = others.filter((t) => t.name !== tool);
+  const hosts = [...new Set(rest.flatMap((t) => t.hosts))].sort();
+  return [
+    '',
+    '## What this compendium covers',
+    `- This API: ${allEndpoints.length} GET endpoint(s) probed (listed in this sheet). Any other path on this host is NOT covered; do not infer its behavior from these.`,
+    rest.length ? `- Other APIs: ${rest.length} (${hosts.join(', ')}). list_tools gives each with its hosts.` : '- Other APIs: none yet.',
+    '- Not probed anywhere yet: write endpoints (POST/PUT/DELETE), request bodies, auth flows, hosts not listed above.',
+    '- Fetch: get_tool_docs {tool, path?, brief?} for an endpoint; search_claims {query} for one question; get_tool_knowledge {tool, kind} for structured claims; get_divergences {tool}; request_target to ask for an uncovered public API (needs a key).',
+  ];
+}
+
 /** One line per endpoint: the directory an agent descends with get_tool_docs {path}. */
 function endpointIndex(tool: string, claims: ClaimView[], endpoints: string[], except: string | null, brief: boolean): string[] {
   const rows = endpoints
@@ -301,6 +325,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     }
     if (!common.length && !watch.length) lines.push('- Nothing beyond the sections above.');
     lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, scoped, true));
+    lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
     lines.push('', `Full sheet${scoped ? ' for this endpoint' : ''} (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"${scoped ? `,"path":"${scoped.replace(/^[A-Z]+ /, '')}"` : ''}}. One question: search_claims.`);
     return lines.join('\n');
   }
@@ -341,6 +366,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     if (!shape.length && !general.length && !paramLines.length) lines.push('', 'Nothing beyond the common behavior above.');
   }
   lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, scoped, false));
+  lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
   return lines.join('\n');
 }
 

@@ -98,6 +98,12 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   const nomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here' } })).content as { text: string }[];
   assert.match(nomatch[0].text, /No covered endpoint matches the path \/nope\/here/);
   assert.match(nomatch[0].text, /## Other endpoints covered \(\d+\)/);
+  // Every sheet ends by saying what the compendium does and does not cover.
+  for (const t of [md, brief[0].text, scoped[0].text, viaUrl[0].text]) {
+    assert.match(t, /## What this compendium covers/);
+    assert.match(t, /This API: \d+ GET endpoint\(s\) probed/);
+    assert.match(t, /Not probed anywhere yet: write endpoints/);
+  }
   // The host / URL form: what an agent has in hand when it is about to call the API.
   const byHost = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: new URL(api.url).host, version: versionIds[0] } });
   assert.match((byHost.content as { text: string }[])[0].text, /^# mock-items: verified behavior/);

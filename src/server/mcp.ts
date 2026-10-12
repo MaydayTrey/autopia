@@ -25,6 +25,7 @@ import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
 import { compactClaim, listTools, listVersions, pathOf, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
+import { memo } from '../db/cache.js';
 import { logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
 import { importContribution } from '../db/contributions.js';
@@ -108,10 +109,13 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     return { name: r.tool.name };
   };
   const TOOL_ARG = z.string().describe('tool name (e.g. github-rest), or the host / URL you are about to call (e.g. api.github.com)');
-  /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. */
-  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose ? claims : claims.map(compactClaim));
+  /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. Anonymous callers never get previews. */
+  const anonCaller = ctx.identity === 'anon';
+  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose && !anonCaller ? claims : claims.map(compactClaim));
+  /** Anonymous page sizes are capped so one call cannot pull the whole table. */
+  const capLimit = (limit: number | undefined, dflt: number, anonMax: number) => (anonCaller ? Math.min(limit ?? dflt, anonMax) : (limit ?? dflt));
 
-  tool('list_tools', { title: 'List tools', description: 'Which APIs the compendium covers, each with the HOSTS its trials hit (match the URL you are about to call), trust tier, version count and verified-claim / divergence counts. Call once per session; then get_tool_docs for the host you are about to call.', inputSchema: {} }, async () => text(await listTools(await getDb())));
+  tool('list_tools', { title: 'List tools', description: 'Which APIs the compendium covers, each with the HOSTS its trials hit (match the URL you are about to call), trust tier, version count and verified-claim / divergence counts. Call once per session; then get_tool_docs for the host you are about to call.', inputSchema: {} }, async () => text(await memo('list_tools', async () => listTools(await getDb()))));
 
   tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Spec versions of one API, newest first, each fingerprinted by its spec hash. Use with get_version_diff when a spec changed and you want to know what changed in BEHAVIOR.', inputSchema: { tool: TOOL_ARG } }, async ({ tool }) => {
     const db = await getDb();
@@ -132,11 +136,11 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     async ({ tool, version, kind, limit, offset, verbose }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const k = await toolKnowledge(await getDb(), ref.name, version ?? null, false);
+      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|all`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, false));
       if (!k) return noSuchTool(tool);
       const all = kind ? k.claims.filter((c) => c.kind === kind) : k.claims;
       const start = offset ?? 0;
-      const page = all.slice(start, start + (limit ?? 100));
+      const page = all.slice(start, start + capLimit(limit, 100, 100));
       const counts: Record<string, number> = {};
       for (const c of k.claims) counts[c.kind] = (counts[c.kind] ?? 0) + 1;
       return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: all.length, offset: start, returned: page.length, counts_by_kind: counts, claims: shape(page, verbose) });
@@ -149,7 +153,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     async ({ tool, version, verbose }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const k = await toolKnowledge(await getDb(), ref.name, version ?? null, true);
+      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|div`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, true));
       if (!k) return noSuchTool(tool);
       return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: k.claims.length, claims: shape(k.claims, verbose) });
     },
@@ -165,7 +169,8 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
         if ('error' in ref) return ref.error;
         name = ref.name;
       }
-      return text(shape(await searchClaims(await getDb(), query, name, limit ?? 20), verbose));
+      const lim = capLimit(limit, 20, 20);
+      return text(shape(await memo(`search|${name ?? ''}|${lim}|${query}`, async () => searchClaims(await getDb(), query, name, lim)), verbose));
     },
   );
 
@@ -175,7 +180,8 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     async ({ tool, version, brief, path }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const md = await renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief, path: path ?? pathOf(tool) });
+      const reqPath = path ?? pathOf(tool);
+      const md = await memo(`docs|${ref.name}|${version ?? 'latest'}|${brief ? 'b' : 'f'}|${reqPath ?? ''}`, async () => renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief, path: reqPath }));
       return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );
@@ -267,11 +273,14 @@ async function main() {
   // tools under a per-IP limit and a global daily cap; request_target and /contribute still need
   // a key. AUTOPIA_ANON_READS=0 restores key-only access.
   const anonReads = process.env.AUTOPIA_ANON_READS !== '0';
-  const anon = new AnonLimiter(Number(process.env.AUTOPIA_ANON_PER_MINUTE ?? 60), Number(process.env.AUTOPIA_ANON_PER_DAY ?? 2000), Number(process.env.AUTOPIA_ANON_DAILY_CAP ?? 50_000));
+  // Defaults sized for the free tiers underneath: 5,000 anonymous calls a day is ~75MB of sheets
+  // and, with the 10-minute response cache, a few hundred database round trips. Raise them in the
+  // environment when the hosting can take it.
+  const anon = new AnonLimiter(Number(process.env.AUTOPIA_ANON_PER_MINUTE ?? 30), Number(process.env.AUTOPIA_ANON_PER_DAY ?? 300), Number(process.env.AUTOPIA_ANON_DAILY_CAP ?? 5_000));
   app.set('trust proxy', true); // Render / Fly terminate TLS; req.ip is then the client, not the proxy
   if (adminToken) log.info('mcp', 'admin token configured; per-user ak_ keys also accepted on /mcp');
   if (openEndpoint) log.warn('mcp', 'AUTOPIA_MCP_OPEN=1: /mcp accepts unauthenticated calls without limits');
-  else if (anonReads) log.info('mcp', `anonymous reads on /mcp: ${anon.perMinute}/min and ${anon.perDay}/day per IP, ${anon.dailyCap}/day overall; keys for request_target and /contribute`);
+  else if (anonReads) log.info('mcp', `anonymous reads on /mcp: ${anon.perMinute}/min and ${anon.perDay}/day per IP, ${anon.dailyCap}/day overall, responses cached ${Math.round(Number(process.env.AUTOPIA_CACHE_TTL_MS ?? 600_000) / 60_000)} min; keys for request_target and /contribute`);
   else log.info('mcp', 'AUTOPIA_ANON_READS=0: per-user ak_ keys required on /mcp');
 
   app.post('/mcp', async (req, res) => {

@@ -145,7 +145,9 @@ The `tool` argument of every tool accepts a tool name, a host, or the URL you ar
 call (`api.github.com`, `https://registry.npmjs.org/-/v1/search`). The compendium is a
 directory, not a dump: `get_tool_docs` with a URL or `path` returns **only the endpoint that
 path matches** plus a one-line index of the tool's other endpoints, so an agent descends to
-what it needs instead of receiving everything. Evidence is compact (trial
+what it needs instead of receiving everything. Every sheet ends with a coverage section: which
+endpoints of this API are probed, which other APIs exist (by host), what is not probed anywhere
+yet, and the tools to fetch more, so a reader of one sheet knows what else it can ask for. Evidence is compact (trial
 id, probe, status, request line) unless `verbose=true` asks for response previews. Stored
 request inputs are redacted before storage, so no credential can be served as evidence;
 `npx tsx scripts/scan-stored-secrets.ts` audits the database for anything that slipped through.
@@ -300,9 +302,15 @@ same way from the same `Dockerfile`.
 
 ### Identity: anonymous reads, keys for writes
 
-**Reads are open.** The seven read tools answer without any credential, under a per-IP limit
-(`AUTOPIA_ANON_PER_MINUTE`, default 60; `AUTOPIA_ANON_PER_DAY`, default 2,000) and a global
-daily cap (`AUTOPIA_ANON_DAILY_CAP`, default 50,000) that protects the free tiers underneath.
+**Reads are open, within a budget.** The seven read tools answer without any credential, under
+a per-IP limit (`AUTOPIA_ANON_PER_MINUTE`, default 30; `AUTOPIA_ANON_PER_DAY`, default 300) and a
+global daily cap (`AUTOPIA_ANON_DAILY_CAP`, default 5,000). Anonymous callers never receive
+response previews and their page sizes are capped. Read responses (sheets, catalogue, searches,
+claims) are served from an in-memory cache for ten minutes (`AUTOPIA_CACHE_TTL_MS`), so repeated
+anonymous calls do not reach the database. The defaults are sized for the free tiers underneath:
+5,000 brief sheets a day is roughly 75 MB of egress and a few hundred database round trips, well
+inside Render's and Neon's free allowances; raise the numbers when the hosting can take it. When
+the cap is hit, anonymous callers get 429 with a retry-after; keyed callers are unaffected.
 Public API behavior does not need per-user identity to read. `AUTOPIA_ANON_READS=0` restores
 key-only access. `request_target` and `/contribute` always need a key.
 
