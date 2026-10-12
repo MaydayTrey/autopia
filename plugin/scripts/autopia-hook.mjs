@@ -14,7 +14,7 @@
  *
  * State on disk (all under the data dir):
  *   hosts.json                 host -> tools, refreshed from list_tools every 24h
- *   sheets/<tool>.md           behavior sheets, refreshed every 6h
+ *   sheets/<tool>.brief.md     brief behavior sheets, refreshed every 6h
  *   sessions/<session_id>.json hosts already injected in this session (once per host)
  */
 import fs from 'node:fs';
@@ -79,14 +79,14 @@ async function hosts() {
 }
 
 async function sheet(tool) {
-  const file = path.join(dataDir, 'sheets', `${tool}.md`);
+  const file = path.join(dataDir, 'sheets', `${tool}.brief.md`);
   try {
     const st = fs.statSync(file);
     if (Date.now() - st.mtimeMs < SHEET_TTL_MS) return fs.readFileSync(file, 'utf8');
   } catch {
     /* not cached */
   }
-  const md = await rpc('get_tool_docs', { tool });
+  const md = await rpc('get_tool_docs', { tool, brief: true }); // older servers ignore `brief` and return the full sheet; trimSheet still bounds it
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, md);
   return md;

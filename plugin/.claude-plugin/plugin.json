@@ -1,6 +1,6 @@
 {
   "name": "autopia",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Verified HTTP API behavior, injected at the moment it matters: before an agent's first call to a covered host (api.github.com, registry.npmjs.org, pypi.org, api.anthropic.com, ...) and available as MCP tools for the error path.",
   "author": {
     "name": "Trey (MaydayTrey)"

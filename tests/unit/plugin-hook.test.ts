@@ -28,9 +28,14 @@ test('candidateText: Bash command and WebFetch url are scanned; other tools and 
   assert.equal(candidateText('Bash', { command: 42 }), null);
 });
 
-test('matchHosts: whole-host matches in URLs, bare hosts and quoted strings; no substring false positives', () => {
+test('matchHosts: URL-shaped mentions only (scheme, or host followed by a path); bare mentions and JSON arguments do not fire', () => {
   assert.deepEqual(matchHosts('curl -s https://api.github.com/repos/x/y', INDEX), [{ host: 'api.github.com', tools: ['github-rest'] }]);
+  assert.deepEqual(matchHosts('curl https://api.github.com', INDEX), [{ host: 'api.github.com', tools: ['github-rest'] }], 'scheme without a path');
   assert.deepEqual(matchHosts('curl API.GitHub.com/rate_limit', INDEX), [{ host: 'api.github.com', tools: ['github-rest'] }]);
+  assert.deepEqual(matchHosts(`curl -X POST https://autopia-mcp.onrender.com/mcp -d '{"name":"get_tool_docs","arguments":{"tool":"api.github.com"}}'`, INDEX), [], 'a host inside a JSON argument is not a call to it');
+  assert.deepEqual(matchHosts('echo api.github.com', INDEX), []);
+  assert.deepEqual(matchHosts('git commit -m "handle api.github.com rate limits"', INDEX), []);
+  assert.deepEqual(matchHosts('curl user@api.github.com/x', INDEX), [], 'userinfo-style token is not a host');
   assert.deepEqual(matchHosts(`fetch("https://api.open-meteo.com/v1/forecast")`, INDEX), [{ host: 'api.open-meteo.com', tools: ['open-meteo-forecast', 'open-meteo-elevation'] }]);
   assert.deepEqual(matchHosts('curl http://127.0.0.1:4321/v1/items', INDEX), [{ host: '127.0.0.1:4321', tools: ['mock-items'] }]);
   assert.deepEqual(matchHosts('curl https://notapi.github.com/x', INDEX), []);
@@ -65,13 +70,13 @@ test('trimSheet: cuts at a line boundary under the budget and points at get_tool
   assert.doesNotMatch(atSection, /### GET \/b/);
 });
 
-test('buildContext: header + one block per sheet, budget split between tools on the same host, stays under 10,000 chars', () => {
+test('buildContext: header + one block per sheet, budget split between tools on the same host, stays near 5KB', () => {
   const big = '# x\n' + 'y'.repeat(20_000);
   const ctx = buildContext([
     { host: 'api.open-meteo.com', tool: 'open-meteo-forecast', markdown: big },
     { host: 'api.open-meteo.com', tool: 'open-meteo-elevation', markdown: big },
   ]);
-  assert.ok(ctx.length < 10_000, `length ${ctx.length}`);
+  assert.ok(ctx.length < 5_100, `length ${ctx.length}`);
   assert.match(ctx, /^Autopia: VERIFIED behavior/);
   assert.match(ctx, /--- api\.open-meteo\.com -> open-meteo-forecast ---/);
   assert.match(ctx, /--- api\.open-meteo\.com -> open-meteo-elevation ---/);

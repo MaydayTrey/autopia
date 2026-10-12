@@ -58,13 +58,15 @@ The plugin talks to the hosted server. If you run your own compendium server, se
 
 ## How the hook decides
 
-1. It reads the tool input (the Bash command, or the WebFetch URL) and matches it against the
-   list of hosts the compendium covers. The list comes from `list_tools` and is cached for a
-   day; a bundled snapshot covers the first run and cold starts.
-2. For each matched host not yet injected in this session, it fetches the behavior sheet
-   (cached for six hours) and returns it as `additionalContext`.
-3. Sheets are trimmed to fit Claude Code's context budget for hooks, with a pointer to
-   `get_tool_docs` for the full sheet.
+1. It reads the tool input (the Bash command, or the WebFetch URL) and looks for covered hosts
+   in URL shape only: `https://host/...` or `host/path`. A bare mention of a host (in an echo, a
+   commit message, a JSON argument) does not fire. The host list comes from `list_tools` and is
+   cached for a day; a bundled snapshot covers the first run and cold starts.
+2. For each matched host not yet injected in this session, it fetches the **brief** sheet
+   (`get_tool_docs` with `brief: true`: spec contradictions, undocumented rules, auth,
+   pagination and error behavior; cached for six hours) and returns it as `additionalContext`.
+3. The injection is held to about 5KB (the largest brief sheet, GitHub, is 4.6KB), cut at a section boundary, with a pointer to the full
+   sheet and to `search_claims`.
 
 Set `AUTOPIA_HOOK_DEBUG=1` to see the hook's decisions on stderr. State lives in the plugin's
 data directory (`CLAUDE_PLUGIN_DATA`, or `~/.autopia` when run outside Claude Code).

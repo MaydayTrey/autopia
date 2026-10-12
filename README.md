@@ -133,7 +133,7 @@ in a session to a covered host, and after an API call fails or surprises it.
 
 | MCP tool | Use |
 |---|---|
-| `get_tool_docs` | the behavior sheet; call it before the first request to a covered API |
+| `get_tool_docs` | the behavior sheet; call it before the first request to a covered API. `brief: true` for divergences, undocumented rules, auth, pagination and errors only |
 | `search_claims` | the error path: full-text search with host + symptom, e.g. "github per_page 500" |
 | `get_divergences` | only the claims where the live API contradicts its spec |
 | `get_tool_knowledge` | every verified claim as structured records, paginated, filter by kind |
@@ -158,6 +158,21 @@ server for the error path and ships a skill carrying the same trigger text.
 ```bash
 claude plugin install autopia --marketplace MaydayTrey/autopia
 claude plugin configure autopia        # enter your per-user key; stored in the OS credential store
+```
+
+The hook fires only on URL-shaped mentions (`https://host/...` or `host/path`) and injects the
+**brief** sheet, under 5KB: spec contradictions, undocumented rules, auth, pagination and
+error behavior, with a pointer to the full sheet.
+
+**Project-level instructions.** A line in a repository's `CLAUDE.md` or `AGENTS.md` is
+followed more reliably than any server instructions block. For a project that integrates with
+a covered API, add:
+
+```
+Before the first call to api.github.com (or registry.npmjs.org, pypi.org, api.anthropic.com) in a
+session, read its verified behavior sheet: Autopia MCP tool get_tool_docs {"tool":"<host>","brief":true}.
+On an unexpected 4xx/5xx or an empty result from one of those hosts, call search_claims with the host
+and the symptom before retrying.
 ```
 
 For a session-only trial from a checkout: `claude --plugin-dir ./plugin`. Until the key is

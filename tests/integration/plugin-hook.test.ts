@@ -99,12 +99,14 @@ test('hook: a Bash command that calls a covered host gets the behavior sheet inj
   assert.match(ctx, new RegExp(`--- ${host.replace('.', '\\.')} -> mock-items ---`));
   assert.match(ctx, /# mock-items: verified behavior/);
   assert.match(ctx, /Where behavior contradicts the spec/);
-  assert.ok(ctx.length < 10_000);
+  assert.match(ctx, /Watch out for \(auth, pagination, errors\)/, 'the hook asks for the brief sheet');
+  assert.doesNotMatch(ctx, /Request validation:/, 'per-parameter validation is not injected');
+  assert.ok(ctx.length < 5_100, `length ${ctx.length}`);
 
   // Caches were written: host index and the sheet.
   const hosts = JSON.parse(await readFile(path.join(dataDir, 'hosts.json'), 'utf8'));
   assert.deepEqual(hosts.hosts[host], ['mock-items']);
-  assert.match(await readFile(path.join(dataDir, 'sheets', 'mock-items.md'), 'utf8'), /^# mock-items/);
+  assert.match(await readFile(path.join(dataDir, 'sheets', 'mock-items.brief.md'), 'utf8'), /^# mock-items/);
 
   const second = await runHook({ session_id: 's1', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items?q=x` } }, env);
   assert.equal(second.out, null, 'same session, same host: nothing injected again');

@@ -131,6 +131,37 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       revoked afterwards; Trey should create a personal key for daily use
       (npm run autopia -- keys create <name>) in his own terminal so the
       value never enters a transcript.
+  REVIEWER ROUND 3 (2026-10-13, from a marketplace-installed session; the
+  hook fired on the reviewer without it knowing the tool existed):
+   1. DONE: hook matches URL-shaped mentions only (scheme, or host/path;
+      a host inside a JSON argument, an echo or a commit message no longer
+      fires: that was a 9KB false positive). Hook injects the BRIEF sheet:
+      get_tool_docs {brief:true} = divergences + sibling + undocumented
+      rules + 'Watch out for (auth, pagination, errors)': auth/pagination/
+      error_behavior claims, pagination probes only when they REJECT (the
+      message carries the real limit), identical rejections merged per
+      param, no 'do not share one shape' lines, 3 evidence ids each, and a
+      pointer to the full sheet. github: 15.7KB -> 4.6KB, every line
+      actionable. Hook budget 5000 chars, section-boundary cut. CLI: docs
+      --brief. Plugin 0.1.2 (pushed? see git log).
+   2. NOT DONE: error-path PostToolUse hook (on a 4xx/5xx from a covered
+      host in a Bash/WebFetch result, inject top search_claims hits).
+      Highest value per token; the agent is already stuck. Next build.
+   3. DECISION FOR TREY: open anonymous READS (get_tool_docs, search_claims,
+      get_divergences, get_tool_knowledge, list_tools, list_versions,
+      get_version_diff) with a per-IP rate limit and a global daily cap;
+      keep keys for request_target and /contribute. Reviewer's point:
+      manual key issuance = structurally zero adoption; public API behavior
+      does not need per-user auth. Cost risk is Render free CPU and Neon
+      free compute hours; mitigations: per-IP limit (e.g. 60/min, 2000/day),
+      sheet responses are small, hosts/sheets cached client-side 6-24h.
+      Usage so far is 20 calls total, all Trey.
+   4. DONE: README has a CLAUDE.md / AGENTS.md snippet for repos that
+      integrate with a covered API.
+   Also seen: the repo's own .mcp.json showed 401 in the reviewer's session
+   because AUTOPIA_API_KEY was set at User scope AFTER that session started;
+   a new session picks it up.
+
   REPO IS PUBLIC-READY (audit 2026-10-12, commit d3f7bc2): no secrets in
   history/tree/stored data; workflows read-only; ruleset on main = restrict
   deletions + block force pushes (the required-status-check rule was removed

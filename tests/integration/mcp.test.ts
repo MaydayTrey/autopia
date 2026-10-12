@@ -79,6 +79,14 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   assert.match(md, /content-type/);
   assert.match(md, /\[#\d+(, #\d+)*\]/, 'every line cites trial ids');
   assert.ok(md.indexOf('## Where behavior contradicts the spec') < md.indexOf('## Endpoint behavior'), 'divergences come first');
+  // brief=true: what the plugin hook injects. Divergences and watch-outs, no per-parameter validation or response shapes.
+  const brief = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], brief: true } })).content as { text: string }[];
+  assert.match(brief[0].text, /## Where behavior contradicts the spec/);
+  assert.match(brief[0].text, /## Watch out for \(auth, pagination, errors\)/);
+  assert.match(brief[0].text, /Full sheet .*: get_tool_docs \{"tool":"mock-items"\}/);
+  assert.doesNotMatch(brief[0].text, /Request validation:/);
+  assert.doesNotMatch(brief[0].text, /Responses:/);
+  assert.ok(brief[0].text.length < md.length, `brief ${brief[0].text.length} vs full ${md.length}`); // the mock sheet is small; github goes from ~15KB to ~3KB
   // The host / URL form: what an agent has in hand when it is about to call the API.
   const byHost = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: new URL(api.url).host, version: versionIds[0] } });
   assert.match((byHost.content as { text: string }[])[0].text, /^# mock-items: verified behavior/);

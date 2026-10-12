@@ -143,7 +143,61 @@ export function renderParameterLines(summaries: ParamSummary[]): string[] {
   return lines;
 }
 
-export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null): Promise<string | null> {
+/** Rules whose claims are padding at the moment of use: present in the full sheet, never in the brief one. */
+const BRIEF_SKIP_RULES = new Set(['method_head', 'wrong_content_type', 'path_trailing_slash', 'extra_field', 'baseline', 'shape_content_type', 'shape_cache_headers', 'shape_nulls', 'shape_pagination_fields', 'shape_timestamps']);
+/**
+ * In the brief sheet a pagination probe earns a line only when it REJECTS (the message carries the
+ * real limit: "Only the first 1000 search results are available") or when a dedicated rule derived
+ * something from it (clamp, empty last page, Link header). "page = 0 is accepted (HTTP 200)" six
+ * times per endpoint is padding. Error-shape lines that say the errors do NOT share one shape are
+ * padding too: there is nothing to act on.
+ */
+function briefWorthy(c: ClaimView): boolean {
+  const rule = ruleOf(c);
+  if (!rule) return true; // LLM claims of these kinds are usually the specific ones
+  if (BRIEF_SKIP_RULES.has(rule)) return false;
+  if (/^pagination_/.test(rule) && c.verdict !== 'rejects') return false;
+  if (rule === 'error_shape' && /do not share one shape/.test(c.statement)) return false;
+  return true;
+}
+
+/**
+ * Pagination rejections with the same message on the same parameter become one line listing the
+ * values: page=100000 and page=999999999 both rejected with "Only the first 10000 results are
+ * available" is one fact, not two.
+ */
+function mergePaginationRejects(claims: ClaimView[]): string[] {
+  const out: string[] = [];
+  const merged = new Map<string, { values: string[]; rest: string; claims: ClaimView[] }>();
+  for (const c of claims) {
+    const m = /^pagination_/.test(ruleOf(c) ?? '') ? c.statement.match(/^Pagination parameter "([^"]+)" = (\S+) is rejected with (.*)$/) : null;
+    if (!m) {
+      out.push(`${c.statement} ${ev(c, 3)}`);
+      continue;
+    }
+    const key = `${m[1]}|${m[3]}`;
+    const g = merged.get(key) ?? { values: [], rest: m[3], claims: [] };
+    g.values.push(m[2]);
+    g.claims.push(c);
+    merged.set(key, g);
+  }
+  for (const [key, g] of merged) {
+    const param = key.split('|')[0];
+    out.push(`Pagination parameter "${param}" = ${g.values.sort((a, b) => Number(a) - Number(b)).join(' or ')} is rejected with ${g.rest} ${ev(g.claims, 3)}`);
+  }
+  return out;
+}
+
+/** Claim kinds an agent acts on before its first call: how auth really behaves, how lists really paginate, what errors really look like. */
+const BRIEF_KINDS = new Set(['auth', 'pagination', 'error_behavior']);
+
+/**
+ * @param opts.brief  the sheet the plugin hook injects: spec divergences, sibling differences,
+ *   undocumented rules, and auth / pagination / error-behavior claims only, with 3 evidence ids
+ *   each and a pointer to the full sheet. Reviewer finding: of ~9KB injected, six lines were
+ *   actionable; an agent pays for every token of the rest.
+ */
+export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean } = {}): Promise<string | null> {
   const k = await toolKnowledge(db, toolName, versionId ?? null, false);
   if (!k) return null;
   const lines: string[] = [];
@@ -181,7 +235,23 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   const constraints = claims.filter((c) => c.kind === 'undocumented_constraint');
   if (constraints.length) {
     lines.push('', `## Rules the spec never states (${constraints.length})`);
-    for (const c of constraints) lines.push('', `- **${c.endpoint}** ${c.statement} ${ev(c)}`);
+    for (const c of constraints) lines.push('', `- **${c.endpoint}** ${c.statement} ${opts.brief ? ev(c, 3) : ev(c)}`);
+  }
+
+  if (opts.brief) {
+    const eps = [...new Set(claims.map((c) => c.endpoint))].sort();
+    const watch = claims.filter((c) => BRIEF_KINDS.has(c.kind) && c.divergence_type !== 'spec' && briefWorthy(c));
+    const common = commonAcrossEndpoints(watch, eps);
+    const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
+    lines.push('', '## Watch out for (auth, pagination, errors)');
+    for (const g of common) lines.push(`- ${g.statement}${g.except ? ` (every endpoint except ${g.except})` : ''} ${ev(g.claims, 3)}`);
+    for (const ep of eps) {
+      const mine = watch.filter((c) => c.endpoint === ep && !commonKeys.has(c.claim_key)).sort(byKind);
+      for (const line of mergePaginationRejects(mine)) lines.push(`- **${ep}** ${line}`);
+    }
+    if (!common.length && !watch.length) lines.push('- Nothing beyond the sections above.');
+    lines.push('', `Full sheet (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"}. One question: search_claims.`);
+    return lines.join('\n');
   }
 
   const endpoints = [...new Set(claims.map((c) => c.endpoint))].sort();

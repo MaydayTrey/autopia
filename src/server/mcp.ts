@@ -166,13 +166,13 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     },
   );
 
-  tool<{ tool: string; version?: number }>(
+  tool<{ tool: string; version?: number; brief?: boolean }>(
     'get_tool_docs',
-    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional() } },
-    async ({ tool, version }) => {
+    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. brief=true returns only spec divergences, undocumented rules, and auth / pagination / error behavior (about a third of the size).', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), brief: z.boolean().optional().describe('divergences, undocumented rules, auth, pagination and error behavior only') } },
+    async ({ tool, version, brief }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const md = await renderToolDocs(await getDb(), ref.name, version ?? null);
+      const md = await renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief });
       return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );

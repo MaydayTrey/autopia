@@ -59,6 +59,7 @@ const { values, positionals } = parseArgs({
     version: { type: 'string' },
     tool: { type: 'string' },
     json: { type: 'boolean', default: false },
+    brief: { type: 'boolean', default: false },
   },
 });
 const [cmd, ...args] = positionals;
@@ -313,7 +314,7 @@ async function main() {
     }
     case 'docs': {
       const db = await getDb();
-      const md = await renderToolDocs(db, need(args[0], 'tool name'), values.version ? Number(values.version) : null);
+      const md = await renderToolDocs(db, need(args[0], 'tool name'), values.version ? Number(values.version) : null, { brief: values.brief });
       if (!md) throw new Error('no such tool');
       out(md);
       break;
