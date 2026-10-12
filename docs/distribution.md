@@ -54,8 +54,14 @@ account connected with push access to the repo:
    root plus `license` in plugin.json; `privacyPolicyUrl` (plugin/PRIVACY.md); a square PNG
    at `.claude-plugin/icon.png` (512-2048 px, under 2 MB; it becomes the listing icon only
    on the first save, later changes are ignored); secrets only via `userConfig` with
-   `sensitive: true`, never read from the machine. The name check held "autopia" for review
-   as close to "AITOPIA" (aitopiaai/skills); that is a human decision, nothing to change.
+   `sensitive: true`, never read from the machine. Even the user_config variable counted as
+   "a credential-named environment variable beside a remote url" when a hook script read it,
+   so since 0.3.2 the hook scripts carry no key at all (reads are anonymous; the key is used
+   only by the `.mcp.json` server entry via `${user_config.autopia_key}`, which the validator
+   accepts). Node hook scripts are always read by a reviewer (`COMMAND_SCRIPT_NOT_FOLLOWED`);
+   that is expected and not fixable short of rewriting the hooks as plain shell. The name
+   check held "autopia" for review as close to "AITOPIA" (aitopiaai/skills); that is a
+   human decision, nothing to change.
 2. Open `https://claude.ai/directory/manage` -> Submit new -> **Plugin bundle**.
 3. Source: repository `MaydayTrey/autopia`, path `plugin`, tracked branch `main`. Validate.
 4. Listing details are read from `plugin/.claude-plugin/plugin.json` and `plugin/README.md`;

@@ -43,12 +43,13 @@ Or, for a session-only trial from a checkout of this repo:
 claude --plugin-dir ./plugin
 ```
 
-The key is read only from that prompt (never from a file or another environment variable); see [PRIVACY.md](PRIVACY.md) for exactly what the hooks send.
+That key is used only by the `autopia` MCP server entry (the tools you or the model call
+directly). The **hooks never send it**: they read anonymously, carry no credential, and send
+only the matched host and request path. See [PRIVACY.md](PRIVACY.md).
 
-If a self-hosted server refuses anonymous reads (HTTP 401) and no key is configured, the hook
-injects a one-line setup note the first time a command touches a covered host, once per
-session. After updating the plugin (`claude plugin update autopia@autopia`) a configured key
-carries over.
+If a self-hosted server refuses anonymous reads (HTTP 401), the hook injects a one-line note
+the first time a command touches a covered host, once per session, pointing the model at the
+MCP tools (which do carry the key).
 
 ## Keys
 

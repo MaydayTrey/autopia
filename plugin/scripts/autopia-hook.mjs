@@ -4,15 +4,16 @@
  * covers, inject the verified behavior sheet for the endpoint in that URL.
  *
  * Contract with Claude Code: JSON on stdin, JSON on stdout, exit 0. This hook never blocks
- * a call: every failure path (server cold, timeout, bad JSON) prints nothing and exits 0. Reads
- * are anonymous on the hosted server, so no key is needed; a key raises the quota. Set
+ * a call: every failure path (server cold, timeout, bad JSON) prints nothing and exits 0. The
+ * hooks read anonymously and never carry a credential (the configured key belongs to the MCP
+ * server entry only). Set
  * AUTOPIA_HOOK_DEBUG=1 to see decisions on stderr. Configuration and state: see client.mjs.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { buildContext, candidateText, hookOutput, matchHosts, setupContext, sheetEndpoint, urlPathFor } from './lib.mjs';
-import { dataDir, debug, hosts, key, readInput, rpc, session } from './client.mjs';
+import { dataDir, debug, hosts, readInput, rpc, session } from './client.mjs';
 
 const SHEET_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -75,9 +76,9 @@ async function main() {
     }
   }
   if (!sheets.length) {
-    // Server cold or down: say nothing, try again on the next call. Server refusing anonymous
-    // reads and no key configured: say so, once per session.
-    if (unauthorized && !key && !s.state.setup_noted) {
+    // Server cold or down: say nothing, try again on the next call. A (self-hosted) server
+    // refusing anonymous reads: say so, once per session; the hooks never send a key.
+    if (unauthorized && !s.state.setup_noted) {
       s.state.setup_noted = true;
       s.save();
       process.stdout.write(JSON.stringify(hookOutput(setupContext(wanted))));

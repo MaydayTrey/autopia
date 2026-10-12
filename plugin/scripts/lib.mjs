@@ -126,12 +126,12 @@ export function buildContext(sheets, budget = 5000) {
   return `${header}\n\n${parts.join('\n\n')}`;
 }
 
-/** The one-time note when the server refused anonymous reads (HTTP 401) and no key is configured. */
+/** The one-time note when the server refused anonymous reads (HTTP 401). The hooks never send a key; the MCP server entry does. */
 export function setupContext(hosts) {
   const list = hosts.map((h) => h.host).join(', ');
   return (
-    `Autopia: this command calls ${list}, an API with a verified behavior sheet in the Discrimen Compendium, but the compendium server requires a key and none is configured, so the sheet was not injected. ` +
-    `Tell the user once: run \`claude plugin configure autopia\` and enter an Autopia API key (see the plugin README). Then proceed with the command as planned.`
+    `Autopia: this command calls ${list}, an API with a verified behavior sheet in the Discrimen Compendium, but the compendium server refused the anonymous read, so the sheet was not injected (the hooks never send a key). ` +
+    `Read it through the autopia MCP server instead: get_tool_docs {"tool":"<the URL you are about to call>"} (that connection carries the key from \`claude plugin configure autopia\`, if one is set). Tell the user once; then proceed with the command as planned.`
   );
 }
 

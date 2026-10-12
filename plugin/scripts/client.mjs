@@ -3,7 +3,8 @@
  * server, the host index cache, and per-session state. Plain Node, no dependencies.
  *
  * Configuration (first match wins):
- *   key   CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY (the plugin's user config prompt; optional, raises the quota)
+ *   (no key: the hooks read anonymously, by design; the API key the user may configure is used
+ *    only by the autopia MCP server entry in .mcp.json, never by these scripts)
  *   url   AUTOPIA_MCP_URL (self-hosted servers)                 |  hosted default
  *   data  CLAUDE_PLUGIN_DATA (durable plugin storage)            |  ~/.autopia
  *
@@ -22,7 +23,6 @@ export const DEFAULT_URL = 'https://autopia-mcp.onrender.com/mcp';
 const HOSTS_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
 
-export const key = process.env.CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY || '';
 export const url = process.env.AUTOPIA_MCP_URL || DEFAULT_URL;
 export const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(os.homedir(), '.autopia');
 export const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,7 +44,7 @@ export function writeJson(file, value) {
 export async function rpc(name, args) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(key ? { authorization: `Bearer ${key}` } : {}) },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });

@@ -99,7 +99,8 @@ test('sheetEndpoint: the endpoint a scoped sheet is about, from its title', () =
 test('setupContext and hookOutput shapes', () => {
   const s = setupContext([{ host: 'api.github.com', tools: ['github-rest'] }]);
   assert.match(s, /calls api\.github\.com/);
-  assert.match(s, /claude plugin configure autopia/);
+  assert.match(s, /get_tool_docs/);
+  assert.match(s, /never send a key/);
   assert.deepEqual(hookOutput('ctx'), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'ctx' } });
 });
 

@@ -12,10 +12,10 @@ of hosts the compendium covers. When one matches, it asks the server for that en
 behavior sheet. The request carries:
 
 - the covered **host** and the **request path** of the URL you were about to call, with the
-  query string removed (for example `api.github.com` and `/repos/{owner}/{repo}/issues`),
-- your API key, if you configured one, as a bearer header over HTTPS.
+  query string removed (for example `api.github.com` and `/repos/{owner}/{repo}/issues`).
 
-It never sends the command text, file contents, the query string, headers, response bodies,
+The hooks carry no credential: they read anonymously even when you have configured a key.
+They never send the command text, file contents, the query string, headers, response bodies,
 the session id, or anything about your project. If no covered host appears in the command, the
 hook makes no network request at all.
 
@@ -53,8 +53,9 @@ directory at any time; it is rebuilt on the next call.
 
 The key is optional; reads work anonymously under per-address limits. It is collected only
 through the plugin's user configuration prompt (`claude plugin configure autopia`), which
-Claude Code stores as a sensitive setting. The hooks do not read it from any other file or
-environment variable.
+Claude Code stores as a sensitive setting, and it is used only by the `autopia` MCP server
+entry declared in `.mcp.json`, as a bearer header over HTTPS to the server above. The hook
+scripts do not read it from anywhere.
 
 ## Contact
 
