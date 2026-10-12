@@ -189,6 +189,16 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       brief. No match -> whole tool + a note + the index. The hook sends
       the request path (query stripped), dedupes per host|endpoint per
       session, caches sheets per (tool, path hash). Plugin 0.2.0.
+   5-UPSTREAM FILED 2026-10-13: https://github.com/github/rest-api-description/issues/7322
+      (Schema Inaccuracy: page/per_page integer and sort/order/direction enum
+      not enforced; curls inline; site linked as "if useful"). Watch for a
+      reply; if maintainers ask for request/response pairs, export the
+      cited trials (inspect-repro.ts / trial <id>). If closed as "advisory
+      constraints, working as intended", record that as a claim-level note
+      on the github-rest sheet. Second finding (since on commits vs issues;
+      issue_field_values 422 without detail) waits until this one has a
+      response. Site is LIVE: https://maydaytrey.github.io/autopia/ (Pages
+      enabled by Trey; the src/site ignore-pattern bug is fixed, CI green).
    5. DONE (a) + DRAFTED (b) (reviewer): put findings where agents already
       look. (a) src/site/build.ts + scripts/build-site.ts render a static
       site: catalogue, one page per API and per endpoint (full sheets, HTML
