@@ -117,9 +117,20 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       inline ids at 8 (+N more), commonAcrossEndpoints() also takes a rule
       holding on all endpoints but one and names the exception. github
       sheet: 12 divergence lines -> 2. Unit: tests/unit/docs-sheet.test.ts.
-   c. NOT DONE: dogfood the plugin in a real session (claude --plugin-dir
-      ./plugin from the repo, then curl api.github.com in Bash) and watch
-      the injection; then 'keys revoke plugin-dev'.
+   c. DONE (2026-10-13): dogfooded in a REAL session, non-interactively:
+        claude -p --plugin-dir ./plugin --model claude-haiku-5-5 \n          --allowedTools "Bash(curl *)" --output-format json "<run curl
+          api.github.com/rate_limit and report any injected context>"
+      (run from the repo with AUTOPIA_API_KEY set and CLAUDECODE unset so
+      a child session can start). The model reported the sheet arriving
+      with the tool result, quoted its first sentence and cited the 60 vs
+      5000 rate-limit tier claim, which the curl output confirmed (limit
+      60). A --resume of the same session with a second GitHub call got NO
+      new block (once per host per session). State file: ~/.claude/plugins/
+      data/autopia-inline/sessions/<session_id>.json (installed plugins
+      use .../data/autopia). ~0.6 cents per check. The plugin-dev key was
+      revoked afterwards; Trey should create a personal key for daily use
+      (npm run autopia -- keys create <name>) in his own terminal so the
+      value never enters a transcript.
   REPO IS PUBLIC-READY (audit 2026-10-12, commit d3f7bc2): no secrets in
   history/tree/stored data; workflows read-only; ruleset on main = restrict
   deletions + block force pushes (the required-status-check rule was removed
@@ -129,7 +140,9 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
   README rewritten 2026-10-13 (08eaed7) to match the current system.
 
 IMMEDIATE NEXT STEPS (in order)
-  1. (b) and (c) above, then the error-path PostToolUse hook (lever #2). Then confirm on the live
+  1. Error-path PostToolUse hook (lever #2): on a non-2xx from a covered
+     host, inject search_claims results for host + status. Then make the
+     repo public and verify a marketplace install from a clean machine. Then confirm on the live
      server that get_tool_docs {"tool":"api.github.com"} resolves.
   2. Confirm github-rest run #50 (rules-only) finished with 0 rejected
      and the releases/search clamp lines are gone from 'docs github-rest'.
