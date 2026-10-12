@@ -119,6 +119,7 @@ export async function usageSummary(db: Db, days = 7) {
     .groupBy(schema.apiCalls.target)
     .orderBy(desc(sql`count(*)`))
     .limit(20);
-  const label = (r: { keyId: number | null; identity: string; name: string | null }) => r.name ?? (r.identity === 'anon' ? 'anonymous' : r.identity === 'admin' ? 'admin-token' : r.identity === 'open' ? 'open-endpoint' : r.keyId === null ? r.identity : `#${r.keyId}`);
+  // Rows logged before the identity column existed were backfilled as 'key' with no key: admin or anonymous calls from before 2026-10-13.
+  const label = (r: { keyId: number | null; identity: string; name: string | null }) => r.name ?? (r.identity === 'anon' ? 'anonymous' : r.identity === 'admin' ? 'admin-token' : r.identity === 'open' ? 'open-endpoint' : r.keyId === null ? (r.identity === 'key' ? 'untracked (pre-2026-10-13)' : r.identity) : `#${r.keyId}`);
   return { since, byKeyTool: byKeyTool.map((r) => ({ ...r, name: label(r) })), byTarget, callers: { ...callers, keys: callers.keys ?? 0 }, perDay };
 }
