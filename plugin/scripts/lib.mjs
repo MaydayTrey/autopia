@@ -83,9 +83,13 @@ export function resultText(msg) {
 export function trimSheet(md, max, toolName) {
   if (md.length <= max) return md;
   const note = `\n\n[Sheet truncated at ${max} characters. Full sheet: get_tool_docs {"tool":"${toolName}"}; one question: search_claims.]`;
-  let cut = md.lastIndexOf('\n', max - note.length);
-  if (cut < max / 2) cut = max - note.length;
-  return md.slice(0, cut) + note;
+  const limit = max - note.length;
+  // Prefer ending right before a section heading (an endpoint or a top-level section) so the
+  // reader never gets half an endpoint; fall back to a line boundary when no heading is near.
+  const section = Math.max(md.lastIndexOf('\n### ', limit), md.lastIndexOf('\n## ', limit));
+  let cut = section >= max * 0.6 ? section : md.lastIndexOf('\n', limit);
+  if (cut < max / 2) cut = limit;
+  return md.slice(0, cut).replace(/\s+$/, '') + note;
 }
 
 /**

@@ -57,6 +57,12 @@ test('trimSheet: cuts at a line boundary under the budget and points at get_tool
   assert.match(out, /\n\n\[Sheet truncated at 2000 characters\. Full sheet: get_tool_docs \{"tool":"github-rest"\}/);
   assert.ok(!/line \d+ of the sheet with some words in it[^\n]+\n\n\[Sheet/.test(out), 'no half line before the note');
   assert.equal(trimSheet('short', 2000, 'x'), 'short');
+  // A nearby section heading wins over a mid-section line, so no endpoint is shown half-way.
+  const line = (p: string, i: number) => `- ${p} line ${i} with enough words in it to count`;
+  const sections = ['# tool', '## Common', ...Array.from({ length: 20 }, (_, i) => line('common', i)), '### GET /a', ...Array.from({ length: 20 }, (_, i) => line('a', i)), '### GET /b', ...Array.from({ length: 20 }, (_, i) => line('b', i))].join('\n');
+  const atSection = trimSheet(sections, 2300, 't');
+  assert.match(atSection, /- a line 19 with enough words in it to count\n\n\[Sheet truncated/, 'cut lands right before the ### GET /b heading');
+  assert.doesNotMatch(atSection, /### GET \/b/);
 });
 
 test('buildContext: header + one block per sheet, budget split between tools on the same host, stays under 10,000 chars', () => {

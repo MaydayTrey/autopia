@@ -40,6 +40,12 @@ claude --plugin-dir ./plugin
 
 Without a configured key the hook falls back to the environment variable `AUTOPIA_API_KEY`.
 
+**Before the key is configured**, a session shows the `autopia` MCP server as failed to connect
+(HTTP 401), and the hook injects a one-line setup note the first time a command touches a
+covered host instead of a sheet. Both clear once the key is configured and a new session is
+started. After updating the plugin (`claude plugin update autopia@autopia`) the configured key
+carries over.
+
 ## Getting a key
 
 The hosted server at `autopia-mcp.onrender.com` identifies every caller by a per-user key

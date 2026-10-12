@@ -160,8 +160,10 @@ claude plugin install autopia --marketplace MaydayTrey/autopia
 claude plugin configure autopia        # enter your per-user key; stored in the OS credential store
 ```
 
-For a session-only trial from a checkout: `claude --plugin-dir ./plugin`. Details, state
-locations and the privacy note are in `plugin/README.md`.
+For a session-only trial from a checkout: `claude --plugin-dir ./plugin`. Until the key is
+configured, the session shows the `autopia` MCP server as failed to connect (401) and the hook
+injects a setup note instead of a sheet; both clear after `claude plugin configure autopia` and
+a new session. Details, state locations and the privacy note are in `plugin/README.md`.
 
 ## Keeping it current (automation)
 
