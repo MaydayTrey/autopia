@@ -28,6 +28,16 @@ export interface PruneResult {
   runIds: number[];
 }
 
+/** How long per-call usage records (tool, target, key id or hashed address) are kept. Stated in plugin/PRIVACY.md; change both together. */
+export const CALL_LOG_DAYS = 30;
+
+/** Delete api_calls older than keepDays. Usage summaries look back at most this far; nothing else reads the table. */
+export async function pruneCalls(db: Db, keepDays = CALL_LOG_DAYS, now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - keepDays * 86_400_000);
+  const rows = await db.delete(schema.apiCalls).where(lt(schema.apiCalls.createdAt, cutoff)).returning({ id: schema.apiCalls.id });
+  return rows.length;
+}
+
 export async function pruneRuns(db: Db, opts: PruneOptions): Promise<PruneResult> {
   const now = opts.now ?? new Date();
   const cutoff = new Date(now.getTime() - opts.keepDays * 86_400_000);

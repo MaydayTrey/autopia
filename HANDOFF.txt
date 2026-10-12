@@ -118,6 +118,14 @@ REVIEWER ROUND 4 (2026-10-12, an agent's assessment after dogfooding)
   Console, re-runs Validate in the portal, Submits. Registry: 0.3.1 is
   published and isLatest (verified 2026-10-12 23:07Z); server.json stays at
   0.3.1 (the server did not change in 0.3.2).
+  LISTING FORM (portal, after validation): optional links added to
+  plugin.json (homepage = Pages site, documentationUrl = plugin README,
+  supportUrl = issues, termsOfServiceUrl = plugin/TERMS.md, new). Data
+  handling answers given to Trey: personal data NO; data to other services
+  NO (hooks and MCP entry both talk only to the declared autopia server);
+  retention UNDER 30 DAYS (true since this commit: pruneCalls deletes
+  api_calls older than CALL_LOG_DAYS=30 in run-all --prune-days and in
+  'prune'; PRIVACY.md says 30 days); under 18 NO.
 
 >>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 

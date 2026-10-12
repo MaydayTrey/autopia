@@ -143,5 +143,14 @@ test('keys: a valid key works and its calls are logged with tool and target', as
   assert.ok(u.perDay.length >= 1 && u.perDay[0].calls >= 1);
   const keys = await listKeys(db);
   assert.ok(keys.find((k) => k.name === 'alice')!.last_used_at, 'last_used_at updated');
+  // Retention: call records older than CALL_LOG_DAYS are deleted, younger ones kept.
+  const { pruneCalls, CALL_LOG_DAYS } = await import('../../src/db/retention.js');
+  const { schema } = client;
+  const { sql } = await import('drizzle-orm');
+  const [{ n: before }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.apiCalls);
+  await db.execute(sql`update api_calls set created_at = now() - interval '40 days' where id = (select min(id) from api_calls)`);
+  assert.equal(await pruneCalls(db), 1, `one record older than ${CALL_LOG_DAYS} days`);
+  const [{ n: after }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.apiCalls);
+  assert.equal(after, before - 1);
   await client.closeDb();
 });

@@ -38,9 +38,10 @@ The hosting providers (Render for the server, Neon for the database) keep their 
 access logs, which include client addresses, under their own retention policies. The server
 sets no cookies and uses no analytics or third-party trackers. No data is sold or shared.
 
-Call records are kept for usage statistics. To have records tied to your key removed, revoke
-the key and open an issue at https://github.com/MaydayTrey/autopia/issues; anonymous records
-cannot be tied to a person.
+Call records are kept for **30 days** for usage statistics and rate limiting, then deleted by
+the nightly maintenance job. To have records tied to your key removed sooner, revoke the key
+and open an issue at https://github.com/MaydayTrey/autopia/issues; anonymous records cannot
+be tied to a person.
 
 ## What stays on your machine
 

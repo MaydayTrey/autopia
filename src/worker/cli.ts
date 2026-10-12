@@ -31,7 +31,7 @@ import { readdir, writeFile } from 'node:fs/promises';
 import { buildBundle, scrubBundle } from './contribute.js';
 import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
-import { pruneRuns } from '../db/retention.js';
+import { CALL_LOG_DAYS, pruneCalls, pruneRuns } from '../db/retention.js';
 import { createKey, listKeys, revokeKey, usageSummary } from '../db/keys.js';
 import { acceptedTargets, listRequests } from '../db/requests.js';
 import { processPendingRequests } from './requests-runner.js';
@@ -221,6 +221,7 @@ async function main() {
       if (values['prune-days']) {
         const p = await pruneRuns(db, { keepDays: Number(values['prune-days']), dryRun: values['dry-run'] });
         out(`  prune (keep ${values['prune-days']} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
+        if (!values['dry-run']) out(`  call log: ${await pruneCalls(db)} record(s) older than ${CALL_LOG_DAYS} days deleted`);
       }
       if (failed) process.exitCode = 1;
       break;
@@ -313,6 +314,7 @@ async function main() {
       const db = await getDb();
       const p = await pruneRuns(db, { keepDays: days, dryRun: values['dry-run'] });
       out(`prune (keep ${days} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
+      if (!values['dry-run']) out(`call log: ${await pruneCalls(db)} record(s) older than ${CALL_LOG_DAYS} days deleted`);
       break;
     }
     case 'docs': {

@@ -7,7 +7,11 @@
   },
   "repository": "https://github.com/MaydayTrey/autopia",
   "license": "MIT",
+  "homepage": "https://maydaytrey.github.io/autopia/",
+  "documentationUrl": "https://github.com/MaydayTrey/autopia/blob/main/plugin/README.md",
+  "supportUrl": "https://github.com/MaydayTrey/autopia/issues",
   "privacyPolicyUrl": "https://github.com/MaydayTrey/autopia/blob/main/plugin/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/MaydayTrey/autopia/blob/main/plugin/TERMS.md",
   "icon": ".claude-plugin/icon.png",
   "keywords": [
     "api",
