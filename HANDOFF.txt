@@ -19,7 +19,9 @@ STATE
     plugin      claude plugin install autopia --marketplace MaydayTrey/autopia
                 (0.3.0: scoped PreToolUse injection + error-path PostToolUse;
                 works with no key)
-    upstream    github/rest-api-description#7322 (Schema Inaccuracy, open)
+    upstream    github/rest-api-description#7322 (Schema Inaccuracy, open;
+                labelled "documentation" by a maintainer 2026-10-12 = triaged
+                as a real description defect, not closed as invalid)
   COSTS: Render free (no card), Neon free (no card), GitHub free; the only
   billed account is the Anthropic API key used by the weekly LLM pass
   (~15 cents per tool per run). A traffic flood cannot create a bill: the
@@ -55,7 +57,9 @@ NEXT (in order)
   2. Claude directory submission (needs Trey's paid claude.ai plan):
      claude.ai/directory/manage -> Plugin bundle (repo MaydayTrey/autopia,
      path plugin, branch main); then the hosted server as an MCP connector.
-  3. Follow up #7322; file the second GitHub finding after a response.
+  3. #7322 is triaged (label documentation, no assignee, no comment). Do NOT
+     nudge it. File the second GitHub finding (since on commits vs issues;
+     issue_field_values 422) only after a human reply on the first.
   4. Every plugin release: bump plugin.json AND server.json versions,
      'mcp-publisher publish server.json', 'claude plugin update'.
   5. DONE: usage identity + distinct anonymous callers (see USAGE above).
@@ -252,7 +256,10 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       (Schema Inaccuracy: page/per_page integer and sort/order/direction enum
       not enforced; curls inline; site linked as "if useful"). Watch for a
       reply; if maintainers ask for request/response pairs, export the
-      cited trials (inspect-repro.ts / trial <id>). If closed as "advisory
+      cited trials (inspect-repro.ts / trial <id>). 2026-10-12 17:03Z: a
+      maintainer added the "documentation" label (same-week blank reports
+      were closed "invalid" within a day; kept ones take weeks to months,
+      fixes arrive via the internal sync, not a PR here). If closed as "advisory
       constraints, working as intended", record that as a claim-level note
       on the github-rest sheet. Second finding (since on commits vs issues;
       issue_field_values 422 without detail) waits until this one has a
