@@ -103,7 +103,7 @@ export function resultText(msg) {
  */
 export function trimSheet(md, max, toolName) {
   if (md.length <= max) return md;
-  const note = `\n\n[Sheet truncated at ${max} characters. Full sheet: get_tool_docs {"tool":"${toolName}"}; one question: search_claims.]`;
+  const note = `\n\n[Sheet truncated at ${max} characters. Whole sheet: get_tool_docs {"tool":"${toolName}","full":true}; one question: search_claims.]`;
   const limit = max - note.length;
   // Prefer ending right before a section heading (an endpoint or a top-level section) so the
   // reader never gets half an endpoint; fall back to a line boundary when no heading is near.
@@ -187,5 +187,5 @@ export function buildErrorContext(failure, claims, budget = 2500) {
     lines.push(l);
     used += l.length + 1;
   }
-  return `${head}\n${lines.join('\n')}\nMore: search_claims {"query":"<symptom>","tool":"${failure.host}"}; the endpoint sheet: get_tool_docs {"tool":"${failure.host}","path":"${failure.path ?? '/'}","brief":true}.`;
+  return `${head}\n${lines.join('\n')}\nMore: search_claims {"query":"<symptom>","tool":"${failure.host}"}; the endpoint sheet: get_tool_docs {"tool":"${failure.host}","path":"${failure.path ?? '/'}"}.`;
 }

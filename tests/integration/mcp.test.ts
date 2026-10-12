@@ -67,7 +67,7 @@ test('mcp: lists the expected tools', async () => {
 });
 
 test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences first and trial ids', async () => {
-  const res = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0] } });
+  const res = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], full: true } });
   const md = (res.content as { type: string; text: string }[])[0].text;
   assert.match(md, /^# mock-items: verified behavior/);
   assert.match(md, /## Where behavior contradicts the spec \(\d+\)/);
@@ -83,19 +83,22 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   const brief = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], brief: true } })).content as { text: string }[];
   assert.match(brief[0].text, /## Where behavior contradicts the spec/);
   assert.match(brief[0].text, /## Watch out for \(auth, pagination, errors\)/);
-  assert.match(brief[0].text, /Full sheet .*: get_tool_docs \{"tool":"mock-items"\}/);
+  assert.match(brief[0].text, /Full sheet .*: get_tool_docs \{"tool":"mock-items","full":true\}/);
+  // Brief is the default: a bare call returns the same sheet as brief:true.
+  const dflt = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0] } })).content as { text: string }[];
+  assert.equal(dflt[0].text, brief[0].text, 'the default sheet is the brief one');
   assert.doesNotMatch(brief[0].text, /Request validation:/);
   assert.doesNotMatch(brief[0].text, /Responses:/);
   assert.ok(brief[0].text.length < md.length, `brief ${brief[0].text.length} vs full ${md.length}`); // the mock sheet is small; github goes from ~15KB to ~3KB
   // path: scope to the endpoint the request path matches; a full URL as `tool` scopes too.
-  const scoped = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/v1/items?q=1' } })).content as { text: string }[];
+  const scoped = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/v1/items?q=1', full: true } })).content as { text: string }[];
   assert.match(scoped[0].text, /^# mock-items: verified behavior for GET \/v1\/items/);
   assert.match(scoped[0].text, /Request validation:/, 'the scoped full sheet still has the endpoint detail');
   const viaUrl = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: `${api.url}/v1/items?q=hello`, version: versionIds[0], brief: true } })).content as { text: string }[];
   assert.match(viaUrl[0].text, /^# mock-items: verified behavior for GET \/v1\/items/);
   assert.match(viaUrl[0].text, /## Watch out for \(auth, pagination, errors\) on GET \/v1\/items/);
   assert.match(viaUrl[0].text, /Full sheet for this endpoint .*"path":"\/v1\/items"/);
-  const nomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here' } })).content as { text: string }[];
+  const nomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here', full: true } })).content as { text: string }[];
   assert.match(nomatch[0].text, /No covered endpoint matches the path \/nope\/here/);
   assert.match(nomatch[0].text, /## Other endpoints covered \(\d+\)/);
   // brief + no match: "not covered" plus the directory only, no whole-tool divergences or watch-outs.

@@ -59,7 +59,7 @@ test('trimSheet: cuts at a line boundary under the budget and points at get_tool
   const md = Array.from({ length: 200 }, (_, i) => `- line ${i} of the sheet with some words in it`).join('\n');
   const out = trimSheet(md, 2000, 'github-rest');
   assert.ok(out.length <= 2000, `length ${out.length}`);
-  assert.match(out, /\n\n\[Sheet truncated at 2000 characters\. Full sheet: get_tool_docs \{"tool":"github-rest"\}/);
+  assert.match(out, /\n\n\[Sheet truncated at 2000 characters\. Whole sheet: get_tool_docs \{"tool":"github-rest","full":true\}/);
   assert.ok(!/line \d+ of the sheet with some words in it[^\n]+\n\n\[Sheet/.test(out), 'no half line before the note');
   assert.equal(trimSheet('short', 2000, 'x'), 'short');
   // A nearby section heading wins over a mid-section line, so no endpoint is shown half-way.

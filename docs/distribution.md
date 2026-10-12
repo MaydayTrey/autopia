@@ -73,3 +73,72 @@ The divergences on page/per_page (typed integer, unvalidated) and sort/order/dir
 unvalidated) are worth filing against github/rest-api-description as a "Schema Inaccuracy",
 linking the public GitHub page of this site for the evidence. The maintainer files it from
 his own account; the text is not kept in this repository.
+
+## 5. Other agent hosts (Cursor, Codex, Claude Desktop, anything that reads AGENTS.md)
+
+The plugin reaches Claude Code only. Every other host gets the same behavior two ways: the
+hosted MCP server (anonymous reads, no key) and a few lines of project instructions carrying
+the trigger. Paste the block that fits; nothing to install on the server side.
+
+**Any agent that reads `AGENTS.md` / `CLAUDE.md` / `.cursorrules`** (add to the file at the repo root):
+
+```
+API behavior reference (Autopia, verified by probing, every line cites reproduced trials):
+- Before the first call in a session to api.github.com, registry.npmjs.org, pypi.org,
+  api.anthropic.com or api.open-meteo.com, read the endpoint's sheet: MCP tool
+  get_tool_docs {"tool":"<the URL you are about to call>"} on the autopia server. If no MCP
+  is configured, fetch https://maydaytrey.github.io/autopia/<tool>/<endpoint>.md
+  (index: https://maydaytrey.github.io/autopia/llms.txt).
+- After an unexpected 4xx/5xx or an empty result from one of those hosts, call
+  search_claims {"query":"<host> <symptom>"} before retrying, or search
+  https://maydaytrey.github.io/autopia/errors.md for the message text.
+- Hosts not listed by list_tools are not covered; do not expect a sheet for them.
+```
+
+**Cursor** (`.cursor/mcp.json` in the project, or Settings -> MCP -> Add):
+
+```json
+{ "mcpServers": { "autopia": { "url": "https://autopia-mcp.onrender.com/mcp" } } }
+```
+
+and a rule that is always applied, `.cursor/rules/autopia.mdc`:
+
+```
+---
+description: Read Autopia's verified API behavior sheet before calling a covered API
+alwaysApply: true
+---
+<the AGENTS.md block above>
+```
+
+**OpenAI Codex CLI** (`~/.codex/config.toml`, or `codex mcp add autopia --url https://autopia-mcp.onrender.com/mcp`):
+
+```toml
+[mcp_servers.autopia]
+url = "https://autopia-mcp.onrender.com/mcp"
+```
+
+Codex reads `AGENTS.md` from the repo root; put the block there.
+
+**Claude Desktop / claude.ai** (Settings -> Connectors -> Add custom connector): name
+`autopia`, URL `https://autopia-mcp.onrender.com/mcp`, no OAuth. The server's instructions
+block carries the trigger, so no project text is needed there.
+
+**Claude Code without the plugin** (`.mcp.json` in the project):
+
+```json
+{ "mcpServers": { "autopia": { "type": "http", "url": "https://autopia-mcp.onrender.com/mcp" } } }
+```
+
+Sheets are brief by default (what would change the request you send); `"full":true` returns
+per-parameter validation, response shapes and every evidence id. A key is only needed to
+submit targets or raise the anonymous quota (30/min, 300/day per address).
+
+## 6. Search: the error message is the query
+
+When an agent hits a 422 it searches the verbatim message. The static site puts every observed
+message on `errors.html` / `errors.md` grouped by host, with the triggering condition and
+trial ids, and the sitemap lists every page. What only the owner can do: Google Search Console
+-> add property `https://maydaytrey.github.io/autopia/` -> Sitemaps -> submit
+`sitemap.xml`; Bing Webmaster Tools accepts the same sitemap. Until that is done and the
+crawl has happened (days to weeks for a new site) the pages will not appear for the message text.

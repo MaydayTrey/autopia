@@ -63,6 +63,41 @@ NEXT (in order)
   4. Every plugin release: bump plugin.json AND server.json versions,
      'mcp-publisher publish server.json', 'claude plugin update'.
   5. DONE: usage identity + distinct anonymous callers (see USAGE above).
+  6. After Trey says push: 'mcp-publisher publish server.json' (0.3.1) and
+     'claude plugin update autopia@autopia' are HIS steps; then Search
+     Console + Bing sitemap submission (docs/distribution.md section 6).
+
+REVIEWER ROUND 4 (2026-10-12, an agent's assessment after dogfooding)
+  Verdict: useful for the covered APIs, zero outside users; a distribution
+  problem, not a quality problem. Items and status:
+  - BUG, FIXED: a full URL on a host shared by two tools (api.open-meteo.com:
+    forecast + elevation) returned "2 tools cover ..." instead of a sheet.
+    resolveToolRef now loads each tool's probed endpoints for the host
+    (endpointsForHost) and picks the one whose endpoint matches the URL path
+    (pickToolByPath; matchEndpoint moved from docs.ts to queries.ts). Still
+    ambiguous (bare host, or a path nobody probed): the error now lists each
+    tool's endpoints and says whether the path is unprobed. Unit-tested in
+    tests/unit/host-ref.test.ts. The plugin hook passes tool names (not
+    hosts) so it never hit this; it now drops a sibling tool's "not covered"
+    note when another tool's sheet matched the endpoint.
+  - DONE: brief is the DEFAULT sheet from get_tool_docs; full:true opts into
+    per-parameter validation, response shapes and all evidence ids
+    (brief:false = full:true; brief:true still accepted; the hook still sends
+    brief:true). INSTRUCTIONS, tool description, in-sheet pointers, README
+    snippet and plugin lib texts updated. CLI 'docs' default unchanged
+    (local, free).
+  - DONE: paste-in blocks for AGENTS.md / Cursor (.cursor/mcp.json + rule) /
+    Codex (config.toml) / Claude Desktop connector / bare Claude Code
+    .mcp.json in docs/distribution.md section 5; README links to it.
+  - TREY: Claude directory submission (item 1 of the reviewer's order);
+    Search Console / Bing sitemap (section 6); the generator partnership
+    email (Stainless, Speakeasy, openapi-mcp: embed divergence lines per
+    endpoint) is a human conversation, drafted on request.
+  - OPEN: "publish the number": run ~20 GitHub/npm/PyPI tasks with and
+    without the hook, count wasted requests and retries. Needs a harness
+    (scripted Claude Code sessions, two configs, same task list); not built.
+  - OPEN, still the ceiling: coverage. Request-body battery remains NEXT 1.
+  Plugin and server.json bumped to 0.3.1 (hook text + default sheet changed).
 
 >>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 

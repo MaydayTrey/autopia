@@ -139,12 +139,57 @@ export async function toolsForHost(db: Db, host: string): Promise<string[]> {
   return rows.map((r) => r.name).sort();
 }
 
-export type ToolRef = { tool: Tool; via: 'name' | 'host' } | { ambiguous: string[]; host: string } | null;
+/** For a host shared by several tools (api.open-meteo.com: forecast and elevation): each tool's probed endpoints, so a request path can pick the tool. */
+export async function endpointsForHost(db: Db, host: string): Promise<Map<string, string[]>> {
+  const rows = await db
+    .selectDistinct({ name: schema.tools.name, endpoint: schema.trials.endpoint })
+    .from(schema.trials)
+    .innerJoin(schema.testRuns, eq(schema.trials.testRunId, schema.testRuns.id))
+    .innerJoin(schema.toolVersions, eq(schema.testRuns.toolVersionId, schema.toolVersions.id))
+    .innerJoin(schema.tools, eq(schema.toolVersions.toolId, schema.tools.id))
+    .where(sql`lower(${trialHost}) = ${host.toLowerCase()}`);
+  const out = new Map<string, string[]>();
+  for (const r of rows) out.set(r.name, [...(out.get(r.name) ?? []), r.endpoint].sort());
+  return new Map([...out].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/**
+ * The probed endpoint ("GET /repos/{owner}/{repo}/issues") a concrete request path matches:
+ * same segment count, literal segments equal (case-insensitive), template segments match
+ * anything, fewest templates wins. Null when the path is not covered.
+ */
+export function matchEndpoint(path: string, endpoints: string[]): string | null {
+  const want = path.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').filter(Boolean);
+  let best: { ep: string; wild: number } | null = null;
+  for (const ep of endpoints) {
+    const segs = ep.replace(/^[A-Z]+ /, '').replace(/\/+$/, '').split('/').filter(Boolean);
+    if (segs.length !== want.length) continue;
+    let wild = 0;
+    let ok = true;
+    for (let i = 0; i < segs.length && ok; i++) {
+      if (/^\{.+\}$/.test(segs[i])) wild++;
+      else if (segs[i].toLowerCase() !== want[i].toLowerCase()) ok = false;
+    }
+    if (ok && (!best || wild < best.wild)) best = { ep, wild };
+  }
+  return best?.ep ?? null;
+}
+
+/** Among tools sharing a host, the one whose probed endpoints match the request path; null when none or more than one does. */
+export function pickToolByPath(path: string | null, endpointsByTool: Map<string, string[]>): string | null {
+  if (!path) return null;
+  const hits = [...endpointsByTool].filter(([, eps]) => matchEndpoint(path, eps) !== null).map(([name]) => name);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+export type ToolRef = { tool: Tool; via: 'name' | 'host' } | { ambiguous: string[]; host: string; path: string | null; endpoints: Record<string, string[]> } | null;
 
 /**
  * Resolve what an agent passed as `tool`: an exact tool name, or the host / URL it is
  * about to call. The host form is what makes "check the compendium before you call
- * api.github.com" a single step instead of a catalogue lookup first.
+ * api.github.com" a single step instead of a catalogue lookup first. When several tools
+ * share the host, the path of a URL picks the one whose probed endpoints match it; the
+ * ambiguous result carries each tool's endpoints so the caller can choose.
  */
 export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
   const exact = await resolveTool(db, ref);
@@ -156,7 +201,16 @@ export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
     const tool = await resolveTool(db, names[0]);
     return tool ? { tool, via: 'host' } : null;
   }
-  if (names.length > 1) return { ambiguous: names, host };
+  if (names.length > 1) {
+    const byTool = await endpointsForHost(db, host);
+    const path = pathOf(ref);
+    const picked = pickToolByPath(path, byTool);
+    if (picked) {
+      const tool = await resolveTool(db, picked);
+      if (tool) return { tool, via: 'host' };
+    }
+    return { ambiguous: names, host, path, endpoints: Object.fromEntries(byTool) };
+  }
   return null;
 }
 

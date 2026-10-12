@@ -12,7 +12,7 @@
  * Every line ends with the trial ids that back it.
  */
 import type { Db } from './client.js';
-import { listTools, toolKnowledge, type ClaimView } from './queries.js';
+import { listTools, matchEndpoint, toolKnowledge, type ClaimView } from './queries.js';
 import { memo } from './cache.js';
 
 /** Inline evidence: the first few trial ids, then a count. 38 ids on one line is noise at the moment of use; get_tool_knowledge has them all. */
@@ -203,22 +203,7 @@ const BRIEF_KINDS = new Set(['auth', 'pagination', 'error_behavior']);
  * endpoint labels ("GET /repos/{owner}/{repo}/issues"): same segment count, template segments
  * match anything, the match with the fewest template segments wins. Null when nothing matches.
  */
-export function matchEndpoint(path: string, endpoints: string[]): string | null {
-  const want = path.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').filter(Boolean);
-  let best: { ep: string; wild: number } | null = null;
-  for (const ep of endpoints) {
-    const segs = ep.replace(/^[A-Z]+ /, '').replace(/\/+$/, '').split('/').filter(Boolean);
-    if (segs.length !== want.length) continue;
-    let wild = 0;
-    let ok = true;
-    for (let i = 0; i < segs.length && ok; i++) {
-      if (/^\{.+\}$/.test(segs[i])) wild++;
-      else if (segs[i].toLowerCase() !== want[i].toLowerCase()) ok = false;
-    }
-    if (ok && (!best || wild < best.wild)) best = { ep, wild };
-  }
-  return best?.ep ?? null;
-}
+export { matchEndpoint };
 
 /**
  * What the compendium can and cannot tell the reader, appended to every sheet: which endpoints
@@ -255,7 +240,7 @@ function endpointIndex(tool: string, claims: ClaimView[], endpoints: string[], e
     });
   if (!rows.length) return [];
   const sample = (endpoints.find((e) => e !== except) ?? endpoints[0]).replace(/^[A-Z]+ /, '');
-  return ['', `## Other endpoints covered (${rows.length})`, ...rows, `Fetch one: get_tool_docs {"tool":"${tool}","path":"${sample}"${brief ? ',"brief":true' : ''}}`];
+  return ['', `## Other endpoints covered (${rows.length})`, ...rows, `Fetch one: get_tool_docs {"tool":"${tool}","path":"${sample}"${brief ? '' : ',"full":true'}}`];
 }
 
 /**
@@ -284,7 +269,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
       lines.push('', `No covered endpoint matches the path ${opts.path}. Nothing below describes that path; the compendium has not probed it. These are the endpoints it has:`);
       lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, null, true));
       lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
-      lines.push('', `Whole-tool sheet (tool-wide auth and pagination behavior may still apply): get_tool_docs {"tool":"${k.tool}","brief":true}.`);
+      lines.push('', `Whole-tool sheet (tool-wide auth and pagination behavior may still apply): get_tool_docs {"tool":"${k.tool}"}.`);
       return lines.join('\n');
     }
     lines.push('', `No covered endpoint matches the path ${opts.path}; this is the whole tool. The covered endpoints are listed at the end.`);
@@ -338,7 +323,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     if (!common.length && !watch.length) lines.push('- Nothing beyond the sections above.');
     lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, scoped, true));
     lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
-    lines.push('', `Full sheet${scoped ? ' for this endpoint' : ''} (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"${scoped ? `,"path":"${scoped.replace(/^[A-Z]+ /, '')}"` : ''}}. One question: search_claims.`);
+    lines.push('', `Full sheet${scoped ? ' for this endpoint' : ''} (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"${scoped ? `,"path":"${scoped.replace(/^[A-Z]+ /, '')}"` : ''},"full":true}. One question: search_claims.`);
     return lines.join('\n');
   }
 

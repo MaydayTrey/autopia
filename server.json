@@ -8,7 +8,7 @@
     "source": "github"
   },
   "websiteUrl": "https://maydaytrey.github.io/autopia/",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "remotes": [
     {
       "type": "streamable-http",

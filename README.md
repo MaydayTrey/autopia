@@ -179,10 +179,14 @@ a covered API, add:
 
 ```
 Before the first call to api.github.com (or registry.npmjs.org, pypi.org, api.anthropic.com) in a
-session, read its verified behavior sheet: Autopia MCP tool get_tool_docs {"tool":"<host>","brief":true}.
+session, read its verified behavior sheet: Autopia MCP tool get_tool_docs {"tool":"<the URL you are about to call>"}.
 On an unexpected 4xx/5xx or an empty result from one of those hosts, call search_claims with the host
 and the symptom before retrying.
 ```
+
+The plugin reaches Claude Code only. Cursor, Codex, Claude Desktop and any agent that reads
+`AGENTS.md` get the same behavior from the hosted server plus a paste-in block; the blocks
+are in [docs/distribution.md](docs/distribution.md#5-other-agent-hosts-cursor-codex-claude-desktop-anything-that-reads-agentsmd).
 
 For a session-only trial from a checkout: `claude --plugin-dir ./plugin`. Until the key is
 configured, the session shows the `autopia` MCP server as failed to connect (401) and the hook

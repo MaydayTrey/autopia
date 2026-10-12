@@ -72,7 +72,7 @@ TRIGGER (do this without being asked):
 
 SKIP: hosts not listed by list_tools (request_target can queue a public read-only API); write endpoints (POST/PUT/DELETE are not probed yet); a behavior sheet you already read this session.
 
-SCOPE: pass the full URL (or path) you are about to call to get_tool_docs to receive ONLY that endpoint plus a one-line index of the others; add brief:true for the short form. Descend to another endpoint by its path instead of reading the whole tool.
+SCOPE: pass the full URL (or path) you are about to call to get_tool_docs to receive ONLY that endpoint plus a one-line index of the others. Sheets are brief by default (what would change the request you send); full:true adds per-parameter validation, response shapes and all evidence ids. Descend to another endpoint by its path instead of reading the whole tool.
 
 TRUST: 'server' tier claims were re-verified by this server on the run shown in the sheet. 'contributor-verified' claims were run by a keyed user and not re-run since; the date says how stale they are. Nothing here is inferred from documentation; every line cites trials.`;
 
@@ -107,7 +107,11 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   const resolveName = async (ref: string): Promise<{ name: string } | { error: ToolResult }> => {
     const r = await resolveToolRef(await getDb(), ref);
     if (!r) return { error: await noSuchTool(ref) };
-    if ('ambiguous' in r) return { error: fail(`${r.ambiguous.length} tools cover ${r.host}: ${r.ambiguous.map((x) => `"${x}"`).join(', ')}. Pass one of them as tool.`) };
+    if ('ambiguous' in r) {
+      const each = r.ambiguous.map((n) => `"${n}" (${(r.endpoints[n] ?? []).join(', ') || 'no endpoints'})`).join('; ');
+      const hint = r.path ? `None of their endpoints matches ${r.path}; the compendium has not probed that path.` : 'Pass the full URL you are about to call (its path picks the tool), or one of those names as tool.';
+      return { error: fail(`${r.ambiguous.length} tools cover ${r.host}: ${each}. ${hint}`) };
+    }
     return { name: r.tool.name };
   };
   const TOOL_ARG = z.string().describe('tool name (e.g. github-rest), or the host / URL you are about to call (e.g. api.github.com)');
@@ -176,14 +180,15 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     },
   );
 
-  tool<{ tool: string; version?: number; brief?: boolean; path?: string }>(
+  tool<{ tool: string; version?: number; brief?: boolean; full?: boolean; path?: string }>(
     'get_tool_docs',
-    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. brief=true returns only spec divergences, undocumented rules, and auth / pagination / error behavior (about a third of the size). Pass the request path (or a full URL as tool) to get ONLY the endpoint you are about to call plus a one-line index of the others; descend to another by passing its path.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), brief: z.boolean().optional().describe('divergences, undocumented rules, auth, pagination and error behavior only'), path: z.string().optional().describe('request path to scope to one endpoint, e.g. /repos/github/rest-api-description/issues; template segments match anything') } },
-    async ({ tool, version, brief, path }) => {
+    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. Brief by default: spec divergences, undocumented rules, and auth / pagination / error behavior, i.e. what would change the request you send. full=true adds per-parameter validation, response shapes and every evidence id (about three times the size). Pass the request path (or a full URL as tool) to get ONLY the endpoint you are about to call plus a one-line index of the others; descend to another by passing its path.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), full: z.boolean().optional().describe('the whole sheet: per-parameter validation, response shapes, all evidence ids'), brief: z.boolean().optional().describe('deprecated: the default; brief=false is the same as full=true'), path: z.string().optional().describe('request path to scope to one endpoint, e.g. /repos/github/rest-api-description/issues; template segments match anything') } },
+    async ({ tool, version, brief, full, path }) => {
+      const isBrief = brief ?? !full;
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
       const reqPath = path ?? pathOf(tool);
-      const md = await memo(`docs|${ref.name}|${version ?? 'latest'}|${brief ? 'b' : 'f'}|${reqPath ?? ''}`, async () => renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief, path: reqPath }));
+      const md = await memo(`docs|${ref.name}|${version ?? 'latest'}|${isBrief ? 'b' : 'f'}|${reqPath ?? ''}`, async () => renderToolDocs(await getDb(), ref.name, version ?? null, { brief: isBrief, path: reqPath }));
       return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );

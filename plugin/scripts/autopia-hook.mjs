@@ -67,6 +67,13 @@ async function main() {
       }
     }
   }
+  // A host shared by several tools (api.open-meteo.com): when one tool's sheet matched the
+  // endpoint, the others' "not covered" notes for the same host are noise; drop them.
+  for (const host of new Set(sheets.map((x) => x.host))) {
+    if (sheets.some((x) => x.host === host && x.endpoint)) {
+      for (let i = sheets.length - 1; i >= 0; i--) if (sheets[i].host === host && !sheets[i].endpoint && /No covered endpoint matches/.test(sheets[i].markdown)) sheets.splice(i, 1);
+    }
+  }
   if (!sheets.length) {
     // Server cold or down: say nothing, try again on the next call. Server refusing anonymous
     // reads and no key configured: say so, once per session.
