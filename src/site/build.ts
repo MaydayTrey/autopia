@@ -15,13 +15,16 @@
  * escaped text) so the pages are crawlable as HTML and readable as text. Each page links its
  * .md twin and the MCP call that returns the same thing live.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { cp, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Db } from '../db/client.js';
 import { renderToolDocs } from '../db/docs.js';
 import { listTools, toolKnowledge, type ClaimView } from '../db/queries.js';
 
 export interface SiteOptions {
+  /** A directory whose files are copied verbatim into the site root (search-engine verification files, favicons). Skipped when absent. */
+  staticDir?: string;
   out: string;
   /** Absolute site root, no trailing slash, e.g. https://maydaytrey.github.io/autopia */
   base: string;
@@ -196,5 +199,7 @@ export async function buildSite(db: Db, opts: SiteOptions): Promise<{ pages: num
   await writeFile(path.join(opts.out, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`);
   await writeFile(path.join(opts.out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${escapeHtml(u)}</loc></url>`).join('\n')}\n</urlset>\n`);
   await writeFile(path.join(opts.out, '.nojekyll'), '');
+  // Verbatim files (site-static/ in the repo): Search Console / Bing verification files live here.
+  if (opts.staticDir && existsSync(opts.staticDir)) await cp(opts.staticDir, opts.out, { recursive: true });
   return { pages: pages + 2, errors: errorRows.length };
 }

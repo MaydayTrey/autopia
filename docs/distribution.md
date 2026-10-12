@@ -138,7 +138,18 @@ submit targets or raise the anonymous quota (30/min, 300/day per address).
 
 When an agent hits a 422 it searches the verbatim message. The static site puts every observed
 message on `errors.html` / `errors.md` grouped by host, with the triggering condition and
-trial ids, and the sitemap lists every page. What only the owner can do: Google Search Console
--> add property `https://maydaytrey.github.io/autopia/` -> Sitemaps -> submit
-`sitemap.xml`; Bing Webmaster Tools accepts the same sitemap. Until that is done and the
-crawl has happened (days to weeks for a new site) the pages will not appear for the message text.
+trial ids, and the sitemap lists every page. What only the owner can do, once:
+
+1. Open https://search.google.com/search-console, **Add property**, choose **URL prefix**
+   (not Domain: github.io is not yours), enter `https://maydaytrey.github.io/autopia/`.
+2. Verification method **HTML file**: download the `google<hash>.html` file it offers.
+3. Put that file in `site-static/` in this repo and push. The Pages workflow copies everything
+   in `site-static/` to the site root, so it is served at
+   `https://maydaytrey.github.io/autopia/google<hash>.html` after the next run (Actions ->
+   pages -> Run workflow to publish now instead of waiting for 07:45 UTC).
+4. Back in Search Console, **Verify**. Then **Sitemaps** -> enter `sitemap.xml` -> Submit.
+5. Bing: https://www.bing.com/webmasters -> **Import from Google Search Console** (one click,
+   same property and sitemap).
+
+Nothing to maintain afterwards: the sitemap is regenerated on every build. Until the crawl has
+happened (days to weeks for a new site) the pages will not appear for the message text.
