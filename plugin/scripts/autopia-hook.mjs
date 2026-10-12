@@ -9,7 +9,7 @@
  *
  * Configuration (first match wins):
  *   key   CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY (plugin user config)  |  AUTOPIA_API_KEY
- *   url   CLAUDE_PLUGIN_OPTION_AUTOPIA_URL                       |  AUTOPIA_MCP_URL  |  hosted default
+ *   url   AUTOPIA_MCP_URL (self-hosted servers)                 |  hosted default
  *   data  CLAUDE_PLUGIN_DATA (durable plugin storage)            |  ~/.autopia
  *
  * State on disk (all under the data dir):
@@ -30,7 +30,7 @@ const FETCH_TIMEOUT_MS = 8000;
 const debug = process.env.AUTOPIA_HOOK_DEBUG === '1' ? (m) => process.stderr.write(`[autopia-hook] ${m}\n`) : () => {};
 
 const key = process.env.CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY || process.env.AUTOPIA_API_KEY || '';
-const url = process.env.CLAUDE_PLUGIN_OPTION_AUTOPIA_URL || process.env.AUTOPIA_MCP_URL || DEFAULT_URL;
+const url = process.env.AUTOPIA_MCP_URL || DEFAULT_URL;
 const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(os.homedir(), '.autopia');
 /** A key, or an explicitly configured server (self-hosted or open endpoint), is what lets the hook call the server. */
 const canCall = !!key || url !== DEFAULT_URL;

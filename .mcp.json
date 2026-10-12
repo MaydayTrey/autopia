@@ -4,7 +4,7 @@
       "type": "http",
       "url": "https://autopia-mcp.onrender.com/mcp",
       "headers": {
-        "Authorization": "Bearer ${AUTOPIA_MCP_TOKEN}"
+        "Authorization": "Bearer ${AUTOPIA_API_KEY}"
       }
     }
   }

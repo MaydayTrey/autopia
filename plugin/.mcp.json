@@ -2,7 +2,7 @@
   "mcpServers": {
     "autopia": {
       "type": "http",
-      "url": "${user_config.autopia_url}",
+      "url": "https://autopia-mcp.onrender.com/mcp",
       "headers": {
         "Authorization": "Bearer ${user_config.autopia_key}"
       }

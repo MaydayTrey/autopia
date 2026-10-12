@@ -25,7 +25,8 @@ script with no dependencies.
 claude plugin install autopia --marketplace MaydayTrey/autopia
 ```
 
-Then configure your key (the value goes to your OS credential store, not to a settings file):
+Then configure your key, the only setting it asks for (the value goes to your OS credential
+store, not to a settings file):
 
 ```bash
 claude plugin configure autopia
@@ -37,8 +38,7 @@ Or, for a session-only trial from a checkout of this repo:
 claude --plugin-dir ./plugin
 ```
 
-Without a configured key the hook falls back to the environment variable `AUTOPIA_API_KEY`,
-and the server URL to `AUTOPIA_MCP_URL`.
+Without a configured key the hook falls back to the environment variable `AUTOPIA_API_KEY`.
 
 ## Getting a key
 
@@ -46,8 +46,9 @@ The hosted server at `autopia-mcp.onrender.com` identifies every caller by a per
 (`ak_...`) with a daily quota. Keys are issued by the maintainer; open an issue on the
 repository with the name you want on the key. Self-service issuance is on the roadmap.
 
-If you run your own compendium server, set `autopia_url` in the plugin configuration (or
-`AUTOPIA_MCP_URL`) to its `/mcp` endpoint.
+The plugin talks to the hosted server. If you run your own compendium server, set
+`AUTOPIA_MCP_URL` to its `/mcp` endpoint for the hook, and edit the `url` in the plugin's
+`.mcp.json` for the MCP tools.
 
 ## How the hook decides
 
