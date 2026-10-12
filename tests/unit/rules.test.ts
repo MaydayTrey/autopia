@@ -212,3 +212,39 @@ test('rules: a page-size cap is claimed only when more items provably exist (Lin
   // The documented maximum reached.
   assert.match(run(huge({ arrayLengths: { '': 100 } }))!.statement, /values above 100 are clamped \(documented maximum 100\)/);
 });
+
+test('rules: a date probe answered with 200 is classified by what came back: impossible filter (empty list), ignored (same count), interpreted, or plain accepted', () => {
+  resetIds();
+  const ep = { ...itemsEndpoint, params: [...itemsEndpoint.params, { name: 'since', in: 'query' as const, required: false, type: 'string' as const, format: 'date-time', explode: true }] };
+  const q: [string, string][] = [['q', 'hello']];
+  const list = (n: number) => ({ items: Array.from({ length: Math.min(n, 5) }, (_, i) => ({ id: i })), total: n });
+  const withLen = (t: Trial, n: number | null) => ({ ...t, response: { ...(t.response as object), ...(n === null ? {} : { arrayLengths: { items: n } }) } });
+  const trials = [
+    fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }),
+    withLen(fakeTrial({ mutationId: 'optional_present:since', status: 200, body: list(5), query: [...q, ['since', '2026-01-01T00:00:00Z']] }), 5),
+    withLen(fakeTrial({ mutationId: 'datetime_invalid:since', status: 200, body: list(0), query: [...q, ['since', 'not-a-date']] }), 0),
+    withLen(fakeTrial({ mutationId: 'datetime_epoch:since', status: 200, body: list(5), query: [...q, ['since', '1768478400']] }), 5),
+    withLen(fakeTrial({ mutationId: 'datetime_date_only:since', status: 200, body: list(3), query: [...q, ['since', '2026-01-15']] }), 3),
+    fakeTrial({ mutationId: 'datetime_no_tz:since', status: 422, body: ERR('validation_failed', 'since must be ISO 8601'), query: [...q, ['since', '2026-01-15T12:00:00']] }),
+  ];
+  const byKey = Object.fromEntries(rulesClaims(trials, [ep]).map((c) => [c.claim_key, c]));
+  const invalid = byKey['rule:datetime_invalid:get_v1_items:since'];
+  assert.equal(invalid.kind, 'error_behavior');
+  assert.match(invalid.statement, /accepts a non-date string \("not-a-date"\) with HTTP 200 but returns an EMPTY list, where the same request with "since"=2026-01-01T00:00:00Z returned 5 item\(s\): the invalid value is silently applied as a filter that matches nothing/);
+  assert.match(byKey['rule:datetime_epoch:get_v1_items:since'].statement, /returns the same 5 item\(s\) as "since"=2026-01-01T00:00:00Z: the value appears to be ignored/);
+  assert.match(byKey['rule:datetime_date_only:get_v1_items:since'].statement, /returns 3 item\(s\) where "since"=2026-01-01T00:00:00Z returned 5: the value is interpreted/);
+  assert.equal(byKey['rule:datetime_no_tz:get_v1_items:since'].verdict, 'rejects');
+  assert.match(byKey['rule:datetime_no_tz:get_v1_items:since'].statement, /rejects an ISO date-time without a timezone designator .* with HTTP 422/);
+
+  // No array lengths recorded (not a list endpoint): the plain wording.
+  resetIds();
+  const plain = rulesClaims(
+    [
+      fakeTrial({ mutationId: 'baseline', status: 200, body: { id: 1 }, query: q }),
+      fakeTrial({ mutationId: 'optional_present:since', status: 200, body: { id: 1 }, query: [...q, ['since', '2026-01-01T00:00:00Z']] }),
+      fakeTrial({ mutationId: 'datetime_invalid:since', status: 200, body: { id: 1 }, query: [...q, ['since', 'not-a-date']] }),
+    ],
+    [ep],
+  ).find((c) => c.claim_key === 'rule:datetime_invalid:get_v1_items:since')!;
+  assert.equal(plain.statement, 'Date parameter "since" accepts a non-date string ("not-a-date") (HTTP 200).');
+});

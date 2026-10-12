@@ -178,9 +178,28 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
       case 'datetime_no_tz':
       case 'datetime_epoch':
       case 'datetime_invalid': {
-        const label = { datetime_date_only: 'a date without a time (2026-01-15)', datetime_no_tz: 'an ISO date-time without a timezone designator (2026-01-15T12:00:00)', datetime_epoch: 'a Unix epoch value (1768478400)', datetime_invalid: 'a non-date string' }[t.mutationType];
-        if (rejected(t)) out.push(claim(t.mutationType, ep, pn, 'type', 'rejects', `Date parameter "${pn}" rejects ${label} with ${desc}.`, [base, t]));
-        else if (ok(t)) out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}).`, [base, t]));
+        const label = { datetime_date_only: 'a date without a time (2026-01-15)', datetime_no_tz: 'an ISO date-time without a timezone designator (2026-01-15T12:00:00)', datetime_epoch: 'a Unix epoch value (1768478400)', datetime_invalid: 'a non-date string ("not-a-date")' }[t.mutationType];
+        if (rejected(t)) {
+          out.push(claim(t.mutationType, ep, pn, 'type', 'rejects', `Date parameter "${pn}" rejects ${label} with ${desc}.`, [base, t]));
+        } else if (ok(t)) {
+          // A 200 says nothing by itself. Compare the list length with the comparison request
+          // (the same call with a valid value): zero rows where the comparison had rows means the
+          // value was applied as a filter that matches nothing, which is worse than a rejection
+          // because nothing signals the bad input (github commits since=not-a-date). The same
+          // count suggests the value was ignored. Another count means it was interpreted.
+          const n = listLength(t);
+          const m = listLength(base);
+          const baseValue = queryValue(base, pn);
+          if (n !== null && m !== null && m > 0 && n === 0) {
+            out.push(claim(t.mutationType, ep, pn, 'error_behavior', 'accepts', `Date parameter "${pn}" accepts ${label} with ${status(t)} but returns an EMPTY list, where the same request with "${pn}"=${baseValue} returned ${m} item(s): the invalid value is silently applied as a filter that matches nothing, with no error to signal bad input. Validate "${pn}" before sending it.`, [base, t], { confidence: 0.9 }));
+          } else if (n !== null && m !== null && m > 0 && n === m) {
+            out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}) and returns the same ${m} item(s) as "${pn}"=${baseValue}: the value appears to be ignored rather than applied.`, [base, t]));
+          } else if (n !== null && m !== null && m > 0) {
+            out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}) and returns ${n} item(s) where "${pn}"=${baseValue} returned ${m}: the value is interpreted, not rejected.`, [base, t]));
+          } else {
+            out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}).`, [base, t]));
+          }
+        }
         break;
       }
       case 'pagination_zero':
@@ -214,13 +233,7 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
   //   - per_page/limit clamping: a huge value accepted with 200 returns fewer items than asked
   //   - a page beyond the last: 200 with an empty list rather than an error
   //   - Link header pagination on the baseline / optional_present responses
-  const lenOf = (t: Trial): number | null => {
-    const al = (t.response as { arrayLengths?: Record<string, number> }).arrayLengths;
-    if (!al) return null;
-    if ('' in al) return al[''];
-    const vals = Object.values(al);
-    return vals.length ? Math.max(...vals) : null;
-  };
+  const lenOf = listLength;
   for (const t of all) {
     if (!ok(t) || !t.paramName) continue;
     const p = params.get(t.paramName);
@@ -278,6 +291,14 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
 }
 
 /** The probed value for a parameter: last query occurrence, else the substituted path value. */
+/** Number of items in a list response, from the array lengths recorded before truncation (top-level array, else the largest array). */
+function listLength(t: Trial): number | null {
+  const al = (t.response as { arrayLengths?: Record<string, number> }).arrayLengths;
+  if (!al) return null;
+  if ('' in al) return al[''];
+  const vals = Object.values(al);
+  return vals.length ? Math.max(...vals) : null;
+}
 const PAGE_SIZE_PARAM = /^(limit|per[-_]?page|page[-_]?size|count|max[-_]?results|page_limit)$/i;
 /** A Link header advertising another page. */
 function hasNextLink(t: Trial): boolean {
