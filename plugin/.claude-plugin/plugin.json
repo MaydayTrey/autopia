@@ -1,6 +1,6 @@
 {
   "name": "autopia",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Verified HTTP API behavior, injected at the moment it matters: before an agent's first call to a covered host (api.github.com, registry.npmjs.org, pypi.org, api.anthropic.com, ...) and available as MCP tools for the error path.",
   "author": {
     "name": "Trey (MaydayTrey)"
@@ -17,7 +17,7 @@
     "autopia_key": {
       "type": "string",
       "title": "Autopia API key",
-      "description": "Per-user key for the hosted Autopia compendium server (starts with ak_). Used by the PreToolUse hook and the MCP server. Ask the maintainer for one; see the plugin README.",
+      "description": "Optional. Per-user key for the hosted Autopia compendium server (starts with ak_): raises your quota and enables request_target. Reads work anonymously without it.",
       "sensitive": true
     }
   }

@@ -197,13 +197,62 @@ const BRIEF_KINDS = new Set(['auth', 'pagination', 'error_behavior']);
  *   each and a pointer to the full sheet. Reviewer finding: of ~9KB injected, six lines were
  *   actionable; an agent pays for every token of the rest.
  */
-export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean } = {}): Promise<string | null> {
+/**
+ * Match a concrete request path ("/repos/github/rest-api-description/issues") to the covered
+ * endpoint labels ("GET /repos/{owner}/{repo}/issues"): same segment count, template segments
+ * match anything, the match with the fewest template segments wins. Null when nothing matches.
+ */
+export function matchEndpoint(path: string, endpoints: string[]): string | null {
+  const want = path.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').filter(Boolean);
+  let best: { ep: string; wild: number } | null = null;
+  for (const ep of endpoints) {
+    const segs = ep.replace(/^[A-Z]+ /, '').replace(/\/+$/, '').split('/').filter(Boolean);
+    if (segs.length !== want.length) continue;
+    let wild = 0;
+    let ok = true;
+    for (let i = 0; i < segs.length && ok; i++) {
+      if (/^\{.+\}$/.test(segs[i])) wild++;
+      else if (segs[i].toLowerCase() !== want[i].toLowerCase()) ok = false;
+    }
+    if (ok && (!best || wild < best.wild)) best = { ep, wild };
+  }
+  return best?.ep ?? null;
+}
+
+/** One line per endpoint: the directory an agent descends with get_tool_docs {path}. */
+function endpointIndex(tool: string, claims: ClaimView[], endpoints: string[], except: string | null, brief: boolean): string[] {
+  const rows = endpoints
+    .filter((e) => e !== except)
+    .map((e) => {
+      const mine = claims.filter((c) => c.endpoint === e);
+      const div = mine.filter((c) => c.divergence_type === 'spec').length;
+      const und = mine.filter((c) => c.kind === 'undocumented_constraint').length;
+      return `- ${e}: ${mine.length} claims${div ? `, ${div} contradict the spec` : ''}${und ? `, ${und} undocumented rule(s)` : ''}`;
+    });
+  if (!rows.length) return [];
+  const sample = (endpoints.find((e) => e !== except) ?? endpoints[0]).replace(/^[A-Z]+ /, '');
+  return ['', `## Other endpoints covered (${rows.length})`, ...rows, `Fetch one: get_tool_docs {"tool":"${tool}","path":"${sample}"${brief ? ',"brief":true' : ''}}`];
+}
+
+/**
+ * @param opts.path  scope the sheet to the endpoint this request path matches (template segments
+ *   match anything); the other endpoints are listed as an index, one line each, so the reader can
+ *   descend to them by name instead of receiving them all. A path that matches nothing yields the
+ *   unscoped sheet plus the index and a note.
+ */
+export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean; path?: string | null } = {}): Promise<string | null> {
   const k = await toolKnowledge(db, toolName, versionId ?? null, false);
   if (!k) return null;
   const lines: string[] = [];
-  const claims = k.claims;
+  const allClaims = k.claims;
+  const allEndpoints = [...new Set(allClaims.map((c) => c.endpoint))].sort();
+  const scoped = opts.path ? matchEndpoint(opts.path, allEndpoints) : null;
+  // Endpoint-scoped: this endpoint's claims, plus the tool-wide lines (common block, auth) which
+  // hold on every endpoint and are computed from everything.
+  const claims = scoped ? allClaims.filter((c) => c.endpoint === scoped) : allClaims;
 
-  lines.push(`# ${k.tool}: verified behavior`);
+  lines.push(scoped ? `# ${k.tool}: verified behavior for ${scoped}` : `# ${k.tool}: verified behavior`);
+  if (opts.path && !scoped && k.version) lines.push('', `No covered endpoint matches the path ${opts.path}; this is the whole tool. The covered endpoints are listed at the end.`);
   if (!k.version) {
     lines.push('', 'No versions recorded yet.');
     return lines.join('\n');
@@ -239,28 +288,31 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   }
 
   if (opts.brief) {
-    const eps = [...new Set(claims.map((c) => c.endpoint))].sort();
-    const watch = claims.filter((c) => BRIEF_KINDS.has(c.kind) && c.divergence_type !== 'spec' && briefWorthy(c));
-    const common = commonAcrossEndpoints(watch, eps);
+    const eps = scoped ? [scoped] : allEndpoints;
+    const watchAll = allClaims.filter((c) => BRIEF_KINDS.has(c.kind) && c.divergence_type !== 'spec' && briefWorthy(c));
+    const common = commonAcrossEndpoints(watchAll, allEndpoints).filter((g) => !scoped || g.except !== scoped);
     const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
-    lines.push('', '## Watch out for (auth, pagination, errors)');
+    const watch = watchAll.filter((c) => eps.includes(c.endpoint));
+    lines.push('', scoped ? `## Watch out for (auth, pagination, errors) on ${scoped}` : '## Watch out for (auth, pagination, errors)');
     for (const g of common) lines.push(`- ${g.statement}${g.except ? ` (every endpoint except ${g.except})` : ''} ${ev(g.claims, 3)}`);
     for (const ep of eps) {
       const mine = watch.filter((c) => c.endpoint === ep && !commonKeys.has(c.claim_key)).sort(byKind);
-      for (const line of mergePaginationRejects(mine)) lines.push(`- **${ep}** ${line}`);
+      for (const line of mergePaginationRejects(mine)) lines.push(scoped ? `- ${line}` : `- **${ep}** ${line}`);
     }
     if (!common.length && !watch.length) lines.push('- Nothing beyond the sections above.');
-    lines.push('', `Full sheet (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"}. One question: search_claims.`);
+    lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, scoped, true));
+    lines.push('', `Full sheet${scoped ? ' for this endpoint' : ''} (response shapes, per-parameter validation, common behavior, all evidence ids): get_tool_docs {"tool":"${k.tool}"${scoped ? `,"path":"${scoped.replace(/^[A-Z]+ /, '')}"` : ''}}. One question: search_claims.`);
     return lines.join('\n');
   }
 
-  const endpoints = [...new Set(claims.map((c) => c.endpoint))].sort();
+  const endpoints = scoped ? [scoped] : allEndpoints;
   const body = claims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint');
 
-  // Facts that hold on EVERY endpoint go once, at the top, not once per endpoint.
-  const common = commonAcrossEndpoints(body, endpoints);
+  // Facts that hold on EVERY endpoint go once, at the top, not once per endpoint. When scoped,
+  // they are computed over the whole tool (they hold here too) unless this endpoint is the exception.
+  const common = commonAcrossEndpoints(scoped ? allClaims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint') : body, allEndpoints).filter((g) => !scoped || g.except !== scoped);
   if (common.length) {
-    lines.push('', endpoints.length === 2 ? '## Behavior common to both endpoints' : `## Behavior common to all ${endpoints.length} endpoints`);
+    lines.push('', allEndpoints.length === 2 ? '## Behavior common to both endpoints' : `## Behavior common to all ${allEndpoints.length} endpoints`);
     for (const g of common) lines.push(`- ${g.statement}${g.except ? ` (every endpoint except ${g.except})` : ''} ${ev(g.claims)}`);
   }
   const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
@@ -288,6 +340,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     }
     if (!shape.length && !general.length && !paramLines.length) lines.push('', 'Nothing beyond the common behavior above.');
   }
+  lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, scoped, false));
   return lines.join('\n');
 }
 

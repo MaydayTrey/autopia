@@ -33,7 +33,7 @@ before(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), 'autopia-mcp-auth-'));
   port = await freePort();
   child = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server', 'mcp.ts'), '--http', String(port)], {
-    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', AUTOPIA_MCP_TOKEN: TOKEN, DATABASE_URL: '' },
+    env: { ...process.env, PGLITE_DIR: dir, AUTOPIA_LOG: 'error', AUTOPIA_MCP_TOKEN: TOKEN, DATABASE_URL: '', AUTOPIA_ANON_PER_MINUTE: '4' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   const t0 = Date.now();
@@ -53,13 +53,36 @@ after(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
 });
 
-test('mcp over http with a token: 401 without it, works with it, healthz stays open', async () => {
+const call = (name: string, args: Record<string, unknown>, headers: Record<string, string> = {}) =>
+  fetch(`http://127.0.0.1:${port}/mcp`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+  });
+
+test('mcp over http: anonymous READS work under a per-IP limit; bad keys are 401; request_target needs a key; the admin token works; healthz stays open', async () => {
   const h = await fetch(`http://127.0.0.1:${port}/healthz`);
   assert.equal(h.status, 200);
-  const anon = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{}' });
-  assert.equal(anon.status, 401);
-  const wrong = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: 'Bearer nope' }, body: '{}' });
-  assert.equal(wrong.status, 401);
+  // No credential: a reader.
+  const anon = await call('list_tools', {});
+  assert.equal(anon.status, 200);
+  // An unexpanded placeholder (a plugin whose key is not configured) is a reader too.
+  const placeholder = await call('list_tools', {}, { authorization: 'Bearer ${user_config.autopia_key}' });
+  assert.equal(placeholder.status, 200);
+  // A malformed or unknown ak_ key is an error, so the caller notices.
+  assert.equal((await call('list_tools', {}, { authorization: 'Bearer ak_nope' })).status, 401);
+  assert.equal((await call('list_tools', {}, { authorization: `Bearer ak_${'a'.repeat(40)}` })).status, 401);
+  // Anonymous callers cannot submit targets.
+  const rt = await call('request_target', { target: { name: 'x', spec_url: 'https://example.com/openapi.json' } });
+  assert.equal(rt.status, 200);
+  assert.match(await rt.text(), /needs a per-user key/);
+  // The per-minute limit (4 in this server's env): anon, placeholder and request_target used 3; one more is fine, the next is 429.
+  assert.equal((await call('list_tools', {})).status, 200);
+  const limited = await call('list_tools', {});
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers.get('retry-after')) > 0);
+  assert.match(await limited.text(), /rate limit \(4\/min\)/);
+  // The admin token is not subject to the anonymous limit.
   const mcp = new Client({ name: 'auth-test', version: '0.0.0' });
   await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${TOKEN}` } } }));
   const { tools } = await mcp.listTools();

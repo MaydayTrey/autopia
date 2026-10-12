@@ -7,7 +7,8 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -96,8 +97,8 @@ test('hook: a Bash command that calls a covered host gets the behavior sheet inj
   const ctx = first.out!.hookSpecificOutput.additionalContext;
   assert.equal(first.out!.hookSpecificOutput.hookEventName, 'PreToolUse');
   assert.match(ctx, /^Autopia: VERIFIED behavior/);
-  assert.match(ctx, new RegExp(`--- ${host.replace('.', '\\.')} -> mock-items ---`));
-  assert.match(ctx, /# mock-items: verified behavior/);
+  assert.match(ctx, /# mock-items: verified behavior for GET \/v1\/items/, 'scoped to the endpoint in the URL');
+  assert.match(ctx, new RegExp(`--- ${host.replace('.', '\\.')}/v1/items -> mock-items \\(GET /v1/items\\) ---`));
   assert.match(ctx, /Where behavior contradicts the spec/);
   assert.match(ctx, /Watch out for \(auth, pagination, errors\)/, 'the hook asks for the brief sheet');
   assert.doesNotMatch(ctx, /Request validation:/, 'per-parameter validation is not injected');
@@ -106,7 +107,9 @@ test('hook: a Bash command that calls a covered host gets the behavior sheet inj
   // Caches were written: host index and the sheet.
   const hosts = JSON.parse(await readFile(path.join(dataDir, 'hosts.json'), 'utf8'));
   assert.deepEqual(hosts.hosts[host], ['mock-items']);
-  assert.match(await readFile(path.join(dataDir, 'sheets', 'mock-items.brief.md'), 'utf8'), /^# mock-items/);
+  const cached = (await readdir(path.join(dataDir, 'sheets'))).filter((f) => f.startsWith('mock-items.') && f.endsWith('.brief.md'));
+  assert.equal(cached.length, 1, 'one scoped brief sheet cached');
+  assert.match(await readFile(path.join(dataDir, 'sheets', cached[0]), 'utf8'), /^# mock-items/);
 
   const second = await runHook({ session_id: 's1', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items?q=x` } }, env);
   assert.equal(second.out, null, 'same session, same host: nothing injected again');
@@ -124,13 +127,31 @@ test('hook: unrelated commands, unknown hosts and missing keys produce no inject
   assert.equal((await runHook({ session_id: 's3', tool_name: 'Bash', tool_input: { command: 'curl https://example.com/api' } }, env)).out, null);
   assert.equal((await runHook({ session_id: 's3', tool_name: 'Read', tool_input: { file_path: `${host}.txt` } }, env)).out, null);
 
-  const noKey = { AUTOPIA_MCP_URL: '', AUTOPIA_API_KEY: '', CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY: '' }; // hosted default URL, no key: the setup note, served from the cached host list without a network call
-  const note = await runHook({ session_id: 's4', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, noKey);
-  assert.ok(note.out, 'the cached host list from the previous test still identifies the host');
-  assert.match(note.out!.hookSpecificOutput.additionalContext, /no Autopia key is configured/);
-  assert.match(note.out!.hookSpecificOutput.additionalContext, /claude plugin configure autopia/);
-  const again = await runHook({ session_id: 's4', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, noKey);
-  assert.equal(again.out, null, 'the setup note is given once per session');
+  // No key at all: reads are anonymous, so the sheet is still injected.
+  const noKey = { AUTOPIA_MCP_URL: `http://127.0.0.1:${port}/mcp`, AUTOPIA_API_KEY: '', CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY: '' };
+  const anon = await runHook({ session_id: 's4', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, noKey);
+  assert.ok(anon.out, 'anonymous read injected the sheet');
+  assert.match(anon.out!.hookSpecificOutput.additionalContext, /# mock-items/);
+
+  // A server that refuses anonymous reads (401) and no key: the setup note, once per session.
+  await rm(path.join(dataDir, 'sheets'), { recursive: true, force: true }); // otherwise the sheet cached by the first test would be served
+  const refusing = http.createServer((_req, res) => {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end('{"error":"unauthorized"}');
+  });
+  await new Promise<void>((r) => refusing.listen(0, '127.0.0.1', () => r()));
+  const refusingPort = (refusing.address() as net.AddressInfo).port;
+  try {
+    const env401 = { AUTOPIA_MCP_URL: `http://127.0.0.1:${refusingPort}/mcp`, AUTOPIA_API_KEY: '', CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY: '' };
+    const note = await runHook({ session_id: 's5', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, env401);
+    assert.ok(note.out, `expected a setup note; stderr: ${note.err}`);
+    assert.match(note.out!.hookSpecificOutput.additionalContext, /requires a key and none is configured/);
+    assert.match(note.out!.hookSpecificOutput.additionalContext, /claude plugin configure autopia/);
+    const again = await runHook({ session_id: 's5', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, env401);
+    assert.equal(again.out, null, 'the setup note is given once per session');
+  } finally {
+    await new Promise<void>((r) => refusing.close(() => r()));
+  }
 });
 
 test('hook: fails open when the server is unreachable (nothing printed, exit 0, under the timeout)', async () => {
@@ -138,7 +159,7 @@ test('hook: fails open when the server is unreachable (nothing printed, exit 0, 
   const host = new URL(api.url).host;
   await rm(path.join(dataDir, 'sheets'), { recursive: true, force: true }); // force a fetch
   const t0 = Date.now();
-  const r = await runHook({ session_id: 's5', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, { AUTOPIA_MCP_URL: `http://127.0.0.1:${dead}/mcp`, AUTOPIA_API_KEY: '' });
+  const r = await runHook({ session_id: 's6', tool_name: 'Bash', tool_input: { command: `curl http://${host}/v1/items` } }, { AUTOPIA_MCP_URL: `http://127.0.0.1:${dead}/mcp`, AUTOPIA_API_KEY: '' });
   assert.equal(r.code, 0);
   assert.equal(r.out, null);
   assert.match(r.err, /sheet mock-items failed/);

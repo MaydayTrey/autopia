@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // The plugin runs on plain Node from its own directory, so its helpers are .mjs, not TypeScript.
 // @ts-expect-error untyped JS module shipped inside the plugin
-import { buildContext, candidateText, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, trimSheet } from '../../plugin/scripts/lib.mjs';
+import { buildContext, candidateText, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, sheetEndpoint, trimSheet, urlPathFor } from '../../plugin/scripts/lib.mjs';
 
 const INDEX = hostIndex([
   { name: 'github-rest', hosts: ['api.github.com'] },
@@ -81,6 +81,19 @@ test('buildContext: header + one block per sheet, budget split between tools on 
   assert.match(ctx, /--- api\.open-meteo\.com -> open-meteo-forecast ---/);
   assert.match(ctx, /--- api\.open-meteo\.com -> open-meteo-elevation ---/);
   assert.equal(buildContext([]), '');
+});
+
+test('urlPathFor: the request path used with a host, without query or trailing slash; null for a bare host', () => {
+  assert.equal(urlPathFor('curl -s "https://api.github.com/repos/x/y/issues?per_page=5"', 'api.github.com'), '/repos/x/y/issues');
+  assert.equal(urlPathFor('curl api.github.com/rate_limit/', 'api.github.com'), '/rate_limit');
+  assert.equal(urlPathFor('curl https://api.github.com', 'api.github.com'), null);
+  assert.equal(urlPathFor('curl http://127.0.0.1:4321/v1/items?q=a', '127.0.0.1:4321'), '/v1/items');
+  assert.equal(urlPathFor(`fetch('https://api.open-meteo.com/v1/forecast')`, 'api.open-meteo.com'), '/v1/forecast');
+});
+
+test('sheetEndpoint: the endpoint a scoped sheet is about, from its title', () => {
+  assert.equal(sheetEndpoint('# github-rest: verified behavior for GET /repos/{owner}/{repo}/issues\n\nSpec: x'), 'GET /repos/{owner}/{repo}/issues');
+  assert.equal(sheetEndpoint('# github-rest: verified behavior\n\nSpec: x'), null);
 });
 
 test('setupContext and hookOutput shapes', () => {

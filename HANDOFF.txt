@@ -147,15 +147,30 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
    2. NOT DONE: error-path PostToolUse hook (on a 4xx/5xx from a covered
       host in a Bash/WebFetch result, inject top search_claims hits).
       Highest value per token; the agent is already stuck. Next build.
-   3. DECISION FOR TREY: open anonymous READS (get_tool_docs, search_claims,
-      get_divergences, get_tool_knowledge, list_tools, list_versions,
-      get_version_diff) with a per-IP rate limit and a global daily cap;
-      keep keys for request_target and /contribute. Reviewer's point:
-      manual key issuance = structurally zero adoption; public API behavior
-      does not need per-user auth. Cost risk is Render free CPU and Neon
-      free compute hours; mitigations: per-IP limit (e.g. 60/min, 2000/day),
-      sheet responses are small, hosts/sheets cached client-side 6-24h.
-      Usage so far is 20 calls total, all Trey.
+   3. DONE (Trey said yes 2026-10-13): ANONYMOUS READS. /mcp with no
+      credential (or a bearer that is not an ak_ key, e.g. an unexpanded
+      ${user_config.autopia_key}) is identity 'anon': all read tools, under
+      src/server/anon-limiter.ts (per IP: AUTOPIA_ANON_PER_MINUTE=60,
+      AUTOPIA_ANON_PER_DAY=2000; global AUTOPIA_ANON_DAILY_CAP=50000; 429
+      with retry-after; in-memory, resets on restart; app 'trust proxy'
+      so req.ip is the client behind Render). Unknown/malformed/revoked
+      ak_ keys are still 401 so callers notice. request_target and
+      /contribute still need a key. AUTOPIA_ANON_READS=0 restores key-only.
+      The plugin now works with NO configuration; the key is optional
+      (quota + request_target). Logging: anon calls land with key_id null,
+      same as the admin token (usage summary merges them; add an identity
+      column if that matters).
+   3b. DONE (Trey's question 'isn't the whole sheet a waste of tokens?'):
+      ENDPOINT-SCOPED SHEETS. get_tool_docs takes path (or a full URL as
+      tool): docs.ts matchEndpoint() maps the concrete path to the covered
+      endpoint label (template segments match anything, fewest templates
+      wins); the sheet is then that endpoint's claims + tool-wide lines
+      (common block / auth, computed over all claims, minus any 'except
+      this endpoint') + 'Other endpoints covered' index (one line each with
+      claim/divergence counts and a fetch example). Works for full and
+      brief. No match -> whole tool + a note + the index. The hook sends
+      the request path (query stripped), dedupes per host|endpoint per
+      session, caches sheets per (tool, path hash). Plugin 0.2.0.
    4. DONE: README has a CLAUDE.md / AGENTS.md snippet for repos that
       integrate with a covered API.
    Also seen: the repo's own .mcp.json showed 401 in the reviewer's session

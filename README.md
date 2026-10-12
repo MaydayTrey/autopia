@@ -142,7 +142,10 @@ in a session to a covered host, and after an API call fails or surprises it.
 | `request_target`, `get_request_status` | ask for an API that is not covered yet (needs a key) |
 
 The `tool` argument of every tool accepts a tool name, a host, or the URL you are about to
-call (`api.github.com`, `https://registry.npmjs.org/-/v1/search`). Evidence is compact (trial
+call (`api.github.com`, `https://registry.npmjs.org/-/v1/search`). The compendium is a
+directory, not a dump: `get_tool_docs` with a URL or `path` returns **only the endpoint that
+path matches** plus a one-line index of the tool's other endpoints, so an agent descends to
+what it needs instead of receiving everything. Evidence is compact (trial
 id, probe, status, request line) unless `verbose=true` asks for response previews. Stored
 request inputs are redacted before storage, so no credential can be served as evidence;
 `npx tsx scripts/scan-stored-secrets.ts` audits the database for anything that slipped through.
@@ -157,12 +160,13 @@ server for the error path and ships a skill carrying the same trigger text.
 
 ```bash
 claude plugin install autopia --marketplace MaydayTrey/autopia
-claude plugin configure autopia        # enter your per-user key; stored in the OS credential store
+claude plugin configure autopia        # optional: a per-user key raises your quota; reads work without one
 ```
 
 The hook fires only on URL-shaped mentions (`https://host/...` or `host/path`) and injects the
-**brief** sheet, under 5KB: spec contradictions, undocumented rules, auth, pagination and
-error behavior, with a pointer to the full sheet.
+**brief** sheet **for the endpoint in that URL**: spec contradictions, undocumented rules, auth,
+pagination and error behavior for that endpoint, tool-wide auth behavior, and a one-line index
+of the other endpoints. Once per host and endpoint per session; well under 5KB.
 
 **Project-level instructions.** A line in a repository's `CLAUDE.md` or `AGENTS.md` is
 followed more reliably than any server instructions block. For a project that integrates with
@@ -294,10 +298,15 @@ The server listens on `/mcp` with `GET /healthz` for the platform check. The ima
 contains the worker, so `run-all` can run as a scheduled machine or by hand. Railway works the
 same way from the same `Dockerfile`.
 
-### Identity: per-user keys
+### Identity: anonymous reads, keys for writes
 
-Each consumer gets their own key, which is how the server knows who is asking, rate-limits
-them, and can revoke them:
+**Reads are open.** The seven read tools answer without any credential, under a per-IP limit
+(`AUTOPIA_ANON_PER_MINUTE`, default 60; `AUTOPIA_ANON_PER_DAY`, default 2,000) and a global
+daily cap (`AUTOPIA_ANON_DAILY_CAP`, default 50,000) that protects the free tiers underneath.
+Public API behavior does not need per-user identity to read. `AUTOPIA_ANON_READS=0` restores
+key-only access. `request_target` and `/contribute` always need a key.
+
+**Keys** give a caller its own quota, a name in the usage log, and the write tools:
 
 ```bash
 npm run autopia -- keys create alice --quota 2000
@@ -310,9 +319,8 @@ call is logged with the key, the tool, the target asked about, success, and late
 `npm run autopia -- usage --days 7` summarizes it per key and per most-asked-about tool.
 
 `AUTOPIA_MCP_TOKEN`, if set, works as an admin token (no quota; compared in constant time;
-calls logged without a key). With no key presented and no admin token configured, `/mcp`
-refuses everything unless `AUTOPIA_MCP_OPEN=1` is set explicitly. Keys are issued by the
-maintainer today; self-service issuance is on the roadmap.
+calls logged without a key). `AUTOPIA_MCP_OPEN=1` disables the anonymous limits entirely (tests
+only). Keys are issued by the maintainer today; self-service issuance is on the roadmap.
 
 ## CLI
 

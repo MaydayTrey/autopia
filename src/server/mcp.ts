@@ -19,10 +19,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { timingSafeEqual } from 'node:crypto';
+import { AnonLimiter } from './anon-limiter.js';
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
-import { compactClaim, listTools, listVersions, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
+import { compactClaim, listTools, listVersions, pathOf, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
@@ -40,8 +41,8 @@ export interface ServerContext {
   keyId: number | null;
   /** When false (stdio), calls are not logged. */
   logCalls: boolean;
-  /** How the caller was identified. Submitting targets requires 'key' or 'admin'. */
-  identity: 'key' | 'admin' | 'open' | 'stdio';
+  /** How the caller was identified. Submitting targets requires 'key' or 'admin'; 'anon' is a rate-limited read-only caller. */
+  identity: 'key' | 'admin' | 'open' | 'stdio' | 'anon';
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
@@ -67,6 +68,8 @@ TRIGGER (do this without being asked):
 - When choosing between endpoints or between sibling APIs, get_divergences shows where each one contradicts its own spec.
 
 SKIP: hosts not listed by list_tools (request_target can queue a public read-only API); write endpoints (POST/PUT/DELETE are not probed yet); a behavior sheet you already read this session.
+
+SCOPE: pass the full URL (or path) you are about to call to get_tool_docs to receive ONLY that endpoint plus a one-line index of the others; add brief:true for the short form. Descend to another endpoint by its path instead of reading the whole tool.
 
 TRUST: 'server' tier claims were re-verified by this server on the run shown in the sheet. 'contributor-verified' claims were run by a keyed user and not re-run since; the date says how stale they are. Nothing here is inferred from documentation; every line cites trials.`;
 
@@ -166,13 +169,13 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     },
   );
 
-  tool<{ tool: string; version?: number; brief?: boolean }>(
+  tool<{ tool: string; version?: number; brief?: boolean; path?: string }>(
     'get_tool_docs',
-    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. brief=true returns only spec divergences, undocumented rules, and auth / pagination / error behavior (about a third of the size).', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), brief: z.boolean().optional().describe('divergences, undocumented rules, auth, pagination and error behavior only') } },
-    async ({ tool, version, brief }) => {
+    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. brief=true returns only spec divergences, undocumented rules, and auth / pagination / error behavior (about a third of the size). Pass the request path (or a full URL as tool) to get ONLY the endpoint you are about to call plus a one-line index of the others; descend to another by passing its path.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), brief: z.boolean().optional().describe('divergences, undocumented rules, auth, pagination and error behavior only'), path: z.string().optional().describe('request path to scope to one endpoint, e.g. /repos/github/rest-api-description/issues; template segments match anything') } },
+    async ({ tool, version, brief, path }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const md = await renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief });
+      const md = await renderToolDocs(await getDb(), ref.name, version ?? null, { brief: !!brief, path: path ?? pathOf(tool) });
       return md ? { content: [{ type: 'text' as const, text: md }] } : await noSuchTool(tool);
     },
   );
@@ -260,9 +263,16 @@ async function main() {
 
   const adminToken = process.env.AUTOPIA_MCP_TOKEN?.trim() || null;
   const openEndpoint = process.env.AUTOPIA_MCP_OPEN === '1';
+  // Public API behavior does not need per-user identity to READ. Anonymous callers get the read
+  // tools under a per-IP limit and a global daily cap; request_target and /contribute still need
+  // a key. AUTOPIA_ANON_READS=0 restores key-only access.
+  const anonReads = process.env.AUTOPIA_ANON_READS !== '0';
+  const anon = new AnonLimiter(Number(process.env.AUTOPIA_ANON_PER_MINUTE ?? 60), Number(process.env.AUTOPIA_ANON_PER_DAY ?? 2000), Number(process.env.AUTOPIA_ANON_DAILY_CAP ?? 50_000));
+  app.set('trust proxy', true); // Render / Fly terminate TLS; req.ip is then the client, not the proxy
   if (adminToken) log.info('mcp', 'admin token configured; per-user ak_ keys also accepted on /mcp');
-  else if (openEndpoint) log.warn('mcp', 'AUTOPIA_MCP_OPEN=1: /mcp accepts unauthenticated calls');
-  else log.info('mcp', 'per-user ak_ keys required on /mcp (no admin token configured)');
+  if (openEndpoint) log.warn('mcp', 'AUTOPIA_MCP_OPEN=1: /mcp accepts unauthenticated calls without limits');
+  else if (anonReads) log.info('mcp', `anonymous reads on /mcp: ${anon.perMinute}/min and ${anon.perDay}/day per IP, ${anon.dailyCap}/day overall; keys for request_target and /contribute`);
+  else log.info('mcp', 'AUTOPIA_ANON_READS=0: per-user ak_ keys required on /mcp');
 
   app.post('/mcp', async (req, res) => {
     // Identity: per-user key, admin token, or (explicitly) open.
@@ -278,7 +288,17 @@ async function main() {
       ctx = { keyId: v.key.id, logCalls: true, identity: 'key' };
     } else if (adminToken && sameSecret(presented, adminToken)) {
       ctx = { keyId: null, logCalls: true, identity: 'admin' };
-    } else if (!openEndpoint) {
+    } else if (openEndpoint) {
+      ctx = { keyId: null, logCalls: true, identity: 'open' };
+    } else if (anonReads) {
+      // No credential, or an unexpanded placeholder like "${user_config.autopia_key}": a reader.
+      const verdict = anon.take(req.ip ?? 'unknown');
+      if (!verdict.ok) {
+        res.status(429).set('retry-after', String(verdict.retryAfterSeconds)).json({ error: verdict.reason, hint: 'A per-user key (Authorization: Bearer ak_...) has its own quota; see the README.' });
+        return;
+      }
+      ctx = { keyId: null, logCalls: true, identity: 'anon' };
+    } else {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }

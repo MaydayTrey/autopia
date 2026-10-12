@@ -25,8 +25,9 @@ script with no dependencies.
 claude plugin install autopia --marketplace MaydayTrey/autopia
 ```
 
-Then configure your key, the only setting it asks for (the value goes to your OS credential
-store, not to a settings file):
+Reads on the hosted server are anonymous, so the plugin works with **no configuration**. A key
+raises your quota and enables `request_target`; to set one (it goes to your OS credential store,
+not to a settings file):
 
 ```bash
 claude plugin configure autopia
@@ -40,17 +41,17 @@ claude --plugin-dir ./plugin
 
 Without a configured key the hook falls back to the environment variable `AUTOPIA_API_KEY`.
 
-**Before the key is configured**, a session shows the `autopia` MCP server as failed to connect
-(HTTP 401), and the hook injects a one-line setup note the first time a command touches a
-covered host instead of a sheet. Both clear once the key is configured and a new session is
-started. After updating the plugin (`claude plugin update autopia@autopia`) the configured key
+If a self-hosted server refuses anonymous reads (HTTP 401) and no key is configured, the hook
+injects a one-line setup note the first time a command touches a covered host, once per
+session. After updating the plugin (`claude plugin update autopia@autopia`) a configured key
 carries over.
 
-## Getting a key
+## Keys
 
-The hosted server at `autopia-mcp.onrender.com` identifies every caller by a per-user key
-(`ak_...`) with a daily quota. Keys are issued by the maintainer; open an issue on the
-repository with the name you want on the key. Self-service issuance is on the roadmap.
+The hosted server at `autopia-mcp.onrender.com` answers reads anonymously under a per-IP limit
+(60 a minute, 2,000 a day). A per-user key (`ak_...`) gives you your own quota and the ability
+to request new targets. Keys are issued by the maintainer; open an issue on the repository with
+the name you want on the key. Self-service issuance is on the roadmap.
 
 The plugin talks to the hosted server. If you run your own compendium server, set
 `AUTOPIA_MCP_URL` to its `/mcp` endpoint for the hook, and edit the `url` in the plugin's
@@ -62,9 +63,12 @@ The plugin talks to the hosted server. If you run your own compendium server, se
    in URL shape only: `https://host/...` or `host/path`. A bare mention of a host (in an echo, a
    commit message, a JSON argument) does not fire. The host list comes from `list_tools` and is
    cached for a day; a bundled snapshot covers the first run and cold starts.
-2. For each matched host not yet injected in this session, it fetches the **brief** sheet
-   (`get_tool_docs` with `brief: true`: spec contradictions, undocumented rules, auth,
-   pagination and error behavior; cached for six hours) and returns it as `additionalContext`.
+2. For each matched host and request path not yet injected in this session, it fetches the
+   **brief** sheet **scoped to that endpoint** (`get_tool_docs` with `brief: true` and `path`:
+   spec contradictions, undocumented rules, auth, pagination and error behavior for the endpoint
+   the path matches, tool-wide auth behavior, and a one-line index of the other endpoints; cached
+   for six hours) and returns it as `additionalContext`. A second endpoint on the same host gets
+   its own small injection; the same endpoint never twice.
 3. The injection is held to about 5KB (the largest brief sheet, GitHub, is 4.6KB), cut at a section boundary, with a pointer to the full
    sheet and to `search_claims`.
 
@@ -74,4 +78,6 @@ data directory (`CLAUDE_PLUGIN_DATA`, or `~/.autopia` when run outside Claude Co
 ## Privacy
 
 The hook sends the compendium server only the matched host or tool name, never your command,
-URL path, query, or any file content. The server logs tool calls per key for quota purposes.
+query string, or any file content; with endpoint scoping it also sends the request path, with
+any query string removed. The server logs tool calls per key (or anonymously, per address, for
+rate limiting) for quota purposes.

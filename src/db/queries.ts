@@ -109,6 +109,15 @@ export function hostOf(ref: string): string | null {
   return null;
 }
 
+/** The path part of a URL-shaped tool reference ("https://api.github.com/repos/x/y" -> "/repos/x/y"); null for a name or a bare host. */
+export function pathOf(ref: string): string | null {
+  const s = ref.trim();
+  const m = s.match(/^(?:[a-z][a-z0-9+.-]*:\/\/)?[^/?#\s]+(\/[^?#\s]*)/i);
+  if (!m || !hostOf(s)) return null;
+  const p = m[1].replace(/\/+$/, '');
+  return p || null;
+}
+
 /** Distinct API hosts a run actually hit, from its trial URLs. */
 export async function runHosts(db: Db, runId: number): Promise<string[]> {
   const rows = await db.selectDistinct({ host: trialHost }).from(schema.trials).where(eq(schema.trials.testRunId, runId));

@@ -87,6 +87,17 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   assert.doesNotMatch(brief[0].text, /Request validation:/);
   assert.doesNotMatch(brief[0].text, /Responses:/);
   assert.ok(brief[0].text.length < md.length, `brief ${brief[0].text.length} vs full ${md.length}`); // the mock sheet is small; github goes from ~15KB to ~3KB
+  // path: scope to the endpoint the request path matches; a full URL as `tool` scopes too.
+  const scoped = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/v1/items?q=1' } })).content as { text: string }[];
+  assert.match(scoped[0].text, /^# mock-items: verified behavior for GET \/v1\/items/);
+  assert.match(scoped[0].text, /Request validation:/, 'the scoped full sheet still has the endpoint detail');
+  const viaUrl = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: `${api.url}/v1/items?q=hello`, version: versionIds[0], brief: true } })).content as { text: string }[];
+  assert.match(viaUrl[0].text, /^# mock-items: verified behavior for GET \/v1\/items/);
+  assert.match(viaUrl[0].text, /## Watch out for \(auth, pagination, errors\) on GET \/v1\/items/);
+  assert.match(viaUrl[0].text, /Full sheet for this endpoint .*"path":"\/v1\/items"/);
+  const nomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here' } })).content as { text: string }[];
+  assert.match(nomatch[0].text, /No covered endpoint matches the path \/nope\/here/);
+  assert.match(nomatch[0].text, /## Other endpoints covered \(\d+\)/);
   // The host / URL form: what an agent has in hand when it is about to call the API.
   const byHost = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: new URL(api.url).host, version: versionIds[0] } });
   assert.match((byHost.content as { text: string }[])[0].text, /^# mock-items: verified behavior/);

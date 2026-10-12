@@ -93,11 +93,12 @@ after(async () => {
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
 });
 
-test('keys: no key, wrong key, malformed key, revoked key -> 401', async () => {
-  assert.equal(await rawPost(null), 401);
-  assert.equal(await rawPost('ak_' + 'x'.repeat(40)), 401);
-  assert.equal(await rawPost('not-a-key'), 401);
-  assert.equal(await rawPost(revokedKey), 401);
+test('keys: no key and a non-key bearer are anonymous readers (200); a wrong, malformed or revoked ak_ key is 401', async () => {
+  assert.equal(await rawPost(null), 200, 'reads are anonymous');
+  assert.equal(await rawPost('not-a-key'), 200, 'a bearer that is not an ak_ key (e.g. an unexpanded placeholder) reads anonymously');
+  assert.equal(await rawPost('ak_' + 'x'.repeat(40)), 401, 'an unknown ak_ key is an error the caller must notice');
+  assert.equal(await rawPost('ak_short'), 401, 'malformed');
+  assert.equal(await rawPost(revokedKey), 401, 'revoked');
 });
 
 test('keys: the per-day quota counts tool calls and then returns 429', async () => {
