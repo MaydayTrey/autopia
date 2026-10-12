@@ -192,6 +192,10 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
           const baseValue = queryValue(base, pn);
           if (n !== null && m !== null && m > 0 && n === 0) {
             out.push(claim(t.mutationType, ep, pn, 'error_behavior', 'accepts', `Date parameter "${pn}" accepts ${label} with ${status(t)} but returns an EMPTY list, where the same request with "${pn}"=${baseValue} returned ${m} item(s): the invalid value is silently applied as a filter that matches nothing, with no error to signal bad input. Validate "${pn}" before sending it.`, [base, t], { confidence: 0.9 }));
+          } else if (n !== null && m !== null && m > 0 && n === m && isFullPage(t, base, n, params)) {
+            // Both responses filled a page (github: 30 by default, Link rel="next" present), so equal
+            // counts say nothing about whether the filter was applied. Say that, rather than "ignored".
+            out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}) and returns a full page of ${n} item(s), as does "${pn}"=${baseValue}; whether the value is applied cannot be told from the result count, and no error signals it.`, [base, t]));
           } else if (n !== null && m !== null && m > 0 && n === m) {
             out.push(claim(t.mutationType, ep, pn, 'type', 'accepts', `Date parameter "${pn}" accepts ${label} (${status(t)}) and returns the same ${m} item(s) as "${pn}"=${baseValue}: the value appears to be ignored rather than applied.`, [base, t]));
           } else if (n !== null && m !== null && m > 0) {
@@ -300,6 +304,18 @@ function listLength(t: Trial): number | null {
   return vals.length ? Math.max(...vals) : null;
 }
 const PAGE_SIZE_PARAM = /^(limit|per[-_]?page|page[-_]?size|count|max[-_]?results|page_limit)$/i;
+/**
+ * Did the list fill a page? True when either response advertises another page (Link rel="next")
+ * or the count reaches the documented default page size of a page-size parameter. A full page
+ * on both sides makes equal counts uninformative.
+ */
+function isFullPage(t: Trial, base: Trial, n: number, params: Map<string, ParamSpec>): boolean {
+  if (hasNextLink(t) || hasNextLink(base)) return true;
+  for (const p of params.values()) {
+    if (PAGE_SIZE_PARAM.test(p.name) && typeof p.default === 'number' && n >= p.default) return true;
+  }
+  return false;
+}
 /** A Link header advertising another page. */
 function hasNextLink(t: Trial): boolean {
   const link = (t.response as { headers?: Record<string, string> }).headers?.link ?? '';

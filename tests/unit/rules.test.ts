@@ -232,6 +232,30 @@ test('rules: a date probe answered with 200 is classified by what came back: imp
   assert.equal(invalid.kind, 'error_behavior');
   assert.match(invalid.statement, /accepts a non-date string \("not-a-date"\) with HTTP 200 but returns an EMPTY list, where the same request with "since"=2026-01-01T00:00:00Z returned 5 item\(s\): the invalid value is silently applied as a filter that matches nothing/);
   assert.match(byKey['rule:datetime_epoch:get_v1_items:since'].statement, /returns the same 5 item\(s\) as "since"=2026-01-01T00:00:00Z: the value appears to be ignored/);
+
+  // Equal counts on a FULL page (Link rel="next", or the default page size reached) prove nothing: say so.
+  resetIds();
+  const linked = (t: Trial) => ({ ...t, response: { ...(t.response as object), headers: { 'content-type': 'application/json', link: '<http://x/v1/items?page=2>; rel="next"' } } });
+  const full = rulesClaims(
+    [
+      fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }),
+      linked(withLen(fakeTrial({ mutationId: 'optional_present:since', status: 200, body: list(30), query: [...q, ['since', '2026-01-01T00:00:00Z']] }), 30)),
+      linked(withLen(fakeTrial({ mutationId: 'datetime_epoch:since', status: 200, body: list(30), query: [...q, ['since', '1768478400']] }), 30)),
+    ],
+    [ep],
+  ).find((c) => c.claim_key === 'rule:datetime_epoch:get_v1_items:since')!;
+  assert.match(full.statement, /returns a full page of 30 item\(s\), as does "since"=2026-01-01T00:00:00Z; whether the value is applied cannot be told from the result count/);
+  resetIds();
+  const epWithDefault = { ...ep, params: ep.params.map((p) => (p.name === 'limit' ? { ...p, default: 30 } : p)) };
+  const byDefault = rulesClaims(
+    [
+      fakeTrial({ mutationId: 'baseline', status: 200, body: OK_LIST, query: q }),
+      withLen(fakeTrial({ mutationId: 'optional_present:since', status: 200, body: list(30), query: [...q, ['since', '2026-01-01T00:00:00Z']] }), 30),
+      withLen(fakeTrial({ mutationId: 'datetime_epoch:since', status: 200, body: list(30), query: [...q, ['since', '1768478400']] }), 30),
+    ],
+    [epWithDefault],
+  ).find((c) => c.claim_key === 'rule:datetime_epoch:get_v1_items:since')!;
+  assert.match(byDefault.statement, /returns a full page of 30 item\(s\)/);
   assert.match(byKey['rule:datetime_date_only:get_v1_items:since'].statement, /returns 3 item\(s\) where "since"=2026-01-01T00:00:00Z returned 5: the value is interpreted/);
   assert.equal(byKey['rule:datetime_no_tz:get_v1_items:since'].verdict, 'rejects');
   assert.match(byKey['rule:datetime_no_tz:get_v1_items:since'].statement, /rejects an ISO date-time without a timezone designator .* with HTTP 422/);
