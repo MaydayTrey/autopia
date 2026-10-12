@@ -215,7 +215,15 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       params unvalidated) with the trial evidence. A fixed spec reaches
       every agent with no plugin. Needs Trey's GitHub account; draft the
       issue text from get_divergences.
-   6. NOT DONE (reviewer): distribution and coverage. Repo is public and
+   6. PREPARED (reviewer): distribution. server.json at the repo root for the
+      MCP Registry (io.github.MaydayTrey/autopia, streamable-http remote,
+      v0.3.0); docs/distribution.md has the verified, exact steps for the
+      registry (mcp-publisher validate/login github/publish), the Claude
+      directory portal (claude.ai/directory/manage -> Plugin bundle; needs a
+      paid plan; official marketplace takes no submissions, community repo
+      is a read-only mirror), GitHub Pages enablement, and the upstream
+      issue. All of these need Trey's accounts; nothing left to code.
+   6-old. ORIGINAL NOTE: Repo is public and
       the plugin installs from this repo's marketplace; next: submit to a
       broader Claude Code plugin marketplace and the MCP registry
       (registry.modelcontextprotocol.io; needs a server.json). Coverage:

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.MaydayTrey/autopia",
+  "title": "Autopia",
+  "description": "Verified, reproduced behavior of public HTTP APIs: spec gaps, errors, pagination, auth.",
+  "repository": {
+    "url": "https://github.com/MaydayTrey/autopia",
+    "source": "github"
+  },
+  "websiteUrl": "https://maydaytrey.github.io/autopia/",
+  "version": "0.3.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://autopia-mcp.onrender.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Optional. 'Bearer <key>' raises the per-user quota and enables request_target; reads work anonymously without it.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
