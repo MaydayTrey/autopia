@@ -187,6 +187,19 @@ configured, the session shows the `autopia` MCP server as failed to connect (401
 injects a setup note instead of a sheet; both clear after `claude plugin configure autopia` and
 a new session. Details, state locations and the privacy note are in `plugin/README.md`.
 
+## Static pages: where agents already look
+
+A web search for an error string should land on a page that cites reproduced trials, with no
+plugin and no MCP connection. `npx tsx scripts/build-site.ts --out site --base <url>` renders
+the compendium as a static site: a catalogue, one page per API, one per endpoint, an index of
+every observed error message with what triggers it, `llms.txt` (the AI-crawler index), a sitemap
+and robots.txt. Pages are the behavior sheets with the lightest HTML wrapping; every page has a
+plain-text `.md` twin and names the MCP call that returns the same thing live.
+
+`.github/workflows/pages.yml` builds it from the hosted database daily after the refresh (and
+on demand) and publishes to GitHub Pages. One-time setup: repository Settings -> Pages ->
+Source: GitHub Actions. The site is at `https://<owner>.github.io/<repo>/`.
+
 ## Keeping it current (automation)
 
 ```bash

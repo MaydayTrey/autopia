@@ -189,7 +189,22 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       brief. No match -> whole tool + a note + the index. The hook sends
       the request path (query stripped), dedupes per host|endpoint per
       session, caches sheets per (tool, path hash). Plugin 0.2.0.
-   5. NOT DONE (reviewer): put findings where agents already look.
+   5. DONE (a) + DRAFTED (b) (reviewer): put findings where agents already
+      look. (a) src/site/build.ts + scripts/build-site.ts render a static
+      site: catalogue, one page per API and per endpoint (full sheets, HTML
+      with a .md twin and the live MCP call named), errors.html = every
+      quoted error message grouped per host/status/message with the
+      triggering claim and trials (the page a web search for an error
+      string should land on), llms.txt (AI-crawler index), sitemap,
+      robots. 84 pages / ~565 messages from the live data. .github/
+      workflows/pages.yml builds it daily at 07:45 UTC after run-all, on
+      demand, and on site-code pushes, and deploys to GitHub Pages
+      (configure-pages enablement:true tries to switch Pages on; if the
+      deploy step fails the first time, Trey enables Settings -> Pages ->
+      Source: GitHub Actions and re-runs). Site URL: https://maydaytrey.
+      github.io/autopia/ . (b) docs/upstream/github-rest-api-description.md
+      is the ready-to-file issue; Trey files it from his account.
+   5-old. ORIGINAL NOTE:
       (a) Static HTML per tool/endpoint/claim, indexable, so a web search
       for an error string ("Validation Failed issue_field_values") lands on
       a cited page. Cheapest form: a GitHub Pages site generated nightly

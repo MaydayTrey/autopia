@@ -1,0 +1,54 @@
+# STATIC SITE: one page per API and per endpoint, an error-message index, llms.txt and a sitemap,
+# built from the hosted database and published to GitHub Pages. Runs after the nightly refresh
+# (run-all is at 07:00 UTC), on demand, and when the site code changes.
+# One-time setup in the repository: Settings -> Pages -> Source: "GitHub Actions".
+# Needs repository secret DATABASE_URL.
+name: pages
+on:
+  schedule:
+    - cron: "45 7 * * *"   # 07:45 UTC daily, after run-all
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/site/**"
+      - "src/db/docs.ts"
+      - "scripts/build-site.ts"
+      - ".github/workflows/pages.yml"
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true   # turns Pages on (source: GitHub Actions) the first time, if the token is allowed to
+      - run: npx tsx scripts/build-site.ts --out site --base "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTOPIA_LOG: warn
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
