@@ -181,6 +181,25 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       brief. No match -> whole tool + a note + the index. The hook sends
       the request path (query stripped), dedupes per host|endpoint per
       session, caches sheets per (tool, path hash). Plugin 0.2.0.
+   5. NOT DONE (reviewer): put findings where agents already look.
+      (a) Static HTML per tool/endpoint/claim, indexable, so a web search
+      for an error string ("Validation Failed issue_field_values") lands on
+      a cited page. Cheapest form: a GitHub Pages site generated nightly
+      from the same renderer (docs.ts) by the run-all workflow: one page
+      per tool, anchors per endpoint and claim id, sitemap. No server cost.
+      (b) File the spec divergences upstream against github/rest-api-
+      description (per_page/page typed integer but unvalidated; enum
+      params unvalidated) with the trial evidence. A fixed spec reaches
+      every agent with no plugin. Needs Trey's GitHub account; draft the
+      issue text from get_divergences.
+   6. NOT DONE (reviewer): distribution and coverage. Repo is public and
+      the plugin installs from this repo's marketplace; next: submit to a
+      broader Claude Code plugin marketplace and the MCP registry
+      (registry.modelcontextprotocol.io; needs a server.json). Coverage:
+      stop adding weather endpoints; the battery must grow first (JSON
+      request bodies, then writes against a scratch repo / sandbox modes)
+      before GitHub writes, more registries (crates.io publishes an OpenAPI
+      spec), and SaaS APIs are worth targeting.
    4. DONE: README has a CLAUDE.md / AGENTS.md snippet for repos that
       integrate with a covered API.
    Also seen: the repo's own .mcp.json showed 401 in the reviewer's session
