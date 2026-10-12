@@ -6,6 +6,9 @@
     "name": "Trey (MaydayTrey)"
   },
   "repository": "https://github.com/MaydayTrey/autopia",
+  "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/MaydayTrey/autopia/blob/main/plugin/PRIVACY.md",
+  "icon": ".claude-plugin/icon.png",
   "keywords": [
     "api",
     "openapi",

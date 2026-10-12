@@ -43,7 +43,7 @@ Or, for a session-only trial from a checkout of this repo:
 claude --plugin-dir ./plugin
 ```
 
-Without a configured key the hook falls back to the environment variable `AUTOPIA_API_KEY`.
+The key is read only from that prompt (never from a file or another environment variable); see [PRIVACY.md](PRIVACY.md) for exactly what the hooks send.
 
 If a self-hosted server refuses anonymous reads (HTTP 401) and no key is configured, the hook
 injects a one-line setup note the first time a command touches a covered host, once per

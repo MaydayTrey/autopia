@@ -1,6 +1,7 @@
 {
   "name": "autopia",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Autopia: empirically tests read-only HTTP APIs, verifies what it finds, and serves the verified claims to agents over MCP.",
   "type": "module",

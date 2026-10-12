@@ -50,7 +50,12 @@ directory portal**, which needs a paid claude.ai plan on the submitting account 
 account connected with push access to the repo:
 
 1. `claude plugin validate ./plugin --strict` passes (it does; the portal applies a few rules
-   the CLI does not).
+   the CLI does not). The portal's extra rules, met since 2026-10-12: a LICENSE at the repo
+   root plus `license` in plugin.json; `privacyPolicyUrl` (plugin/PRIVACY.md); a square PNG
+   at `.claude-plugin/icon.png` (512-2048 px, under 2 MB; it becomes the listing icon only
+   on the first save, later changes are ignored); secrets only via `userConfig` with
+   `sensitive: true`, never read from the machine. The name check held "autopia" for review
+   as close to "AITOPIA" (aitopiaai/skills); that is a human decision, nothing to change.
 2. Open `https://claude.ai/directory/manage` -> Submit new -> **Plugin bundle**.
 3. Source: repository `MaydayTrey/autopia`, path `plugin`, tracked branch `main`. Validate.
 4. Listing details are read from `plugin/.claude-plugin/plugin.json` and `plugin/README.md`;

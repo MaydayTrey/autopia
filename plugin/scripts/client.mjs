@@ -3,7 +3,7 @@
  * server, the host index cache, and per-session state. Plain Node, no dependencies.
  *
  * Configuration (first match wins):
- *   key   CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY (plugin user config)  |  AUTOPIA_API_KEY   (optional: raises the quota)
+ *   key   CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY (the plugin's user config prompt; optional, raises the quota)
  *   url   AUTOPIA_MCP_URL (self-hosted servers)                 |  hosted default
  *   data  CLAUDE_PLUGIN_DATA (durable plugin storage)            |  ~/.autopia
  *
@@ -22,7 +22,7 @@ export const DEFAULT_URL = 'https://autopia-mcp.onrender.com/mcp';
 const HOSTS_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
 
-export const key = process.env.CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY || process.env.AUTOPIA_API_KEY || '';
+export const key = process.env.CLAUDE_PLUGIN_OPTION_AUTOPIA_KEY || '';
 export const url = process.env.AUTOPIA_MCP_URL || DEFAULT_URL;
 export const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(os.homedir(), '.autopia');
 export const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
