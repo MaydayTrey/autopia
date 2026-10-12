@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // The plugin runs on plain Node from its own directory, so its helpers are .mjs, not TypeScript.
 // @ts-expect-error untyped JS module shipped inside the plugin
-import { buildContext, candidateText, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, sheetEndpoint, trimSheet, urlPathFor } from '../../plugin/scripts/lib.mjs';
+import { buildContext, buildErrorContext, candidateText, detectFailure, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, sheetEndpoint, trimSheet, urlPathFor } from '../../plugin/scripts/lib.mjs';
 
 const INDEX = hostIndex([
   { name: 'github-rest', hosts: ['api.github.com'] },
@@ -101,4 +101,37 @@ test('setupContext and hookOutput shapes', () => {
   assert.match(s, /calls api\.github\.com/);
   assert.match(s, /claude plugin configure autopia/);
   assert.deepEqual(hookOutput('ctx'), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'ctx' } });
+});
+
+test('detectFailure: a 4xx/5xx from a covered host, from a status line or a JSON status/message; nothing for 2xx, unknown hosts or non-calls', () => {
+  const cmd = { command: 'curl -s -i https://api.github.com/repos/github/rest-api-description/issues?issue_field_values=test' };
+  const f = detectFailure('Bash', cmd, { stdout: 'HTTP/2 422\ncontent-type: application/json\n\n{"message":"Validation Failed","documentation_url":"https://docs.github.com","status":"422"}', stderr: '' }, INDEX);
+  assert.deepEqual(f, { host: 'api.github.com', tools: ['github-rest'], path: '/repos/github/rest-api-description/issues', status: 422, message: 'Validation Failed' });
+  // No status line (curl -s), GitHub-style body carries the status.
+  const g = detectFailure('Bash', cmd, '{"message":"Not Found","documentation_url":"x","status":"404"}', INDEX);
+  assert.equal(g!.status, 404);
+  assert.equal(g!.message, 'Not Found');
+  // A nested error object with a message and no status at all: assumed 400 because the body says error.
+  const h = detectFailure('Bash', { command: 'curl http://127.0.0.1:4321/v1/items?limit=0' }, '{"error":{"code":"invalid_limit","message":"limit must be >= 1"}}', INDEX);
+  assert.deepEqual(h, { host: '127.0.0.1:4321', tools: ['mock-items'], path: '/v1/items', status: 400, message: 'limit must be >= 1' });
+  // Success, unknown host, or a command that is not a call: nothing.
+  assert.equal(detectFailure('Bash', cmd, 'HTTP/2 200\n\n[{"id":1}]', INDEX), null);
+  assert.equal(detectFailure('Bash', { command: 'curl -i https://example.com/x' }, 'HTTP/1.1 500', INDEX), null);
+  assert.equal(detectFailure('Bash', { command: 'echo api.github.com' }, 'HTTP/1.1 500', INDEX), null);
+  assert.equal(detectFailure('Bash', cmd, '', INDEX), null);
+  // WebFetch: the url is the call; the response is text.
+  const w = detectFailure('WebFetch', { url: 'https://api.github.com/users/nobody-here-xyz', prompt: 'x' }, 'Request failed: {"message":"Not Found","status":"404"}', INDEX);
+  assert.equal(w!.status, 404);
+});
+
+test('buildErrorContext: the failure, then compact matching claims within a budget, then how to dig further', () => {
+  const failure = { host: 'api.github.com', tools: ['github-rest'], path: '/repos/x/y/issues', status: 422, message: 'Validation Failed' };
+  const claim = (i: number) => ({ endpoint: 'GET /repos/{owner}/{repo}/issues', statement: `claim ${i} ` + 'x'.repeat(300), evidence: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] });
+  const ctx = buildErrorContext(failure, [claim(1), claim(2), claim(3), claim(4), claim(5), claim(6), claim(7), claim(8), claim(9), claim(10)]);
+  assert.match(ctx, /^Autopia: the call to api\.github\.com\/repos\/x\/y\/issues failed with HTTP 422 "Validation Failed"\./);
+  assert.match(ctx, /- \[GET \/repos\/\{owner\}\/\{repo\}\/issues\] claim 1 x+ \[#1, #2, #3\]/, 'three evidence ids');
+  assert.ok(ctx.length <= 2700, `length ${ctx.length}`);
+  assert.ok((ctx.match(/^- /gm) ?? []).length < 10, 'budget cut the list');
+  assert.match(ctx, /search_claims \{"query":"<symptom>","tool":"api\.github\.com"\}/);
+  assert.deepEqual(hookOutput('c', 'PostToolUse'), { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'c' } });
 });

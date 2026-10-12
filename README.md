@@ -156,9 +156,10 @@ request inputs are redacted before storage, so no credential can be served as ev
 
 An agent only reads a sheet if something tells it to. The plugin in `plugin/` makes that
 deterministic: a **PreToolUse hook** on `Bash` and `WebFetch` matches the command or URL
-against the covered hosts and injects the behavior sheet into the model's context before the
-call, once per host per session, failing open on any error. It also registers the hosted MCP
-server for the error path and ships a skill carrying the same trigger text.
+against the covered hosts and injects the behavior sheet for that endpoint into the model's
+context before the call, and a **PostToolUse hook** injects the verified claims that match a
+4xx/5xx when a call to a covered host fails. Both fail open on any error. It also registers the
+hosted MCP server for digging further and ships a skill carrying the same trigger text.
 
 ```bash
 claude plugin install autopia --marketplace MaydayTrey/autopia

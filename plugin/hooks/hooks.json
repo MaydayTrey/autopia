@@ -1,5 +1,5 @@
 {
-  "description": "Before Bash or WebFetch touches a host the compendium covers, inject that API's verified behavior sheet. Fails open: any error or timeout means no injection, never a blocked call.",
+  "description": "Before Bash or WebFetch touches a host the compendium covers, inject the verified behavior sheet for that endpoint; after a call to a covered host fails with a 4xx/5xx, inject the verified claims that match the failure. Fails open: any error or timeout means no injection, never a blocked call.",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,19 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/autopia-hook.mjs"],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/autopia-post-hook.mjs"],
             "timeout": 15
           }
         ]

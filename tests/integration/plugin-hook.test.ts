@@ -17,6 +17,7 @@ import { startMockApi, type MockApi } from '../mock-api/server.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HOOK = path.join(ROOT, 'plugin', 'scripts', 'autopia-hook.mjs');
+const POST_HOOK = path.join(ROOT, 'plugin', 'scripts', 'autopia-post-hook.mjs');
 let dir: string;
 let dataDir: string;
 let api: MockApi;
@@ -47,9 +48,9 @@ async function waitFor(url: string, ms: number) {
 }
 
 /** Run the hook as Claude Code does. Returns stdout parsed (or null when the hook printed nothing) and stderr. */
-function runHook(input: Record<string, unknown>, env: Record<string, string>): Promise<{ out: { hookSpecificOutput: { hookEventName: string; additionalContext: string } } | null; err: string; code: number | null }> {
+function runHook(input: Record<string, unknown>, env: Record<string, string>, script = HOOK): Promise<{ out: { hookSpecificOutput: { hookEventName: string; additionalContext: string } } | null; err: string; code: number | null }> {
   return new Promise((resolve) => {
-    const p = spawn(process.execPath, [HOOK], { env: { ...process.env, AUTOPIA_HOOK_DEBUG: '1', CLAUDE_PLUGIN_DATA: dataDir, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn(process.execPath, [script], { env: { ...process.env, AUTOPIA_HOOK_DEBUG: '1', CLAUDE_PLUGIN_DATA: dataDir, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     p.stdout.on('data', (d) => (stdout += d));
@@ -174,4 +175,29 @@ test('hook: fails open when the server is unreachable (nothing printed, exit 0, 
   });
   assert.equal(bad.code, 0);
   assert.equal(bad.stdout, '');
+});
+
+test('post hook (error path): a failed call to a covered host gets the matching verified claims, once per failure per session', async () => {
+  const env = { AUTOPIA_MCP_URL: `http://127.0.0.1:${port}/mcp`, AUTOPIA_API_KEY: '' };
+  const host = new URL(api.url).host;
+  const input = {
+    session_id: 'e1',
+    tool_name: 'Bash',
+    tool_input: { command: `curl -s -i "http://${host}/v1/items?q=hello&limit=0"` },
+    tool_response: { stdout: 'HTTP/1.1 400 Bad Request\ncontent-type: application/json\n\n{"error":{"code":"invalid_limit","message":"limit must be >= 1"}}', stderr: '', interrupted: false },
+  };
+  const r = await runHook(input, env, POST_HOOK);
+  assert.equal(r.code, 0);
+  assert.ok(r.out, `expected error-path context; stderr: ${r.err}`);
+  const ctx = r.out!.hookSpecificOutput.additionalContext;
+  assert.equal(r.out!.hookSpecificOutput.hookEventName, 'PostToolUse');
+  assert.ok(ctx.startsWith(`Autopia: the call to ${host}/v1/items failed with HTTP 400 "limit must be >= 1"`), ctx.slice(0, 160));
+  assert.match(ctx, /limit/i, 'the matching claim is about limit');
+  assert.match(ctx, /\[#\d+/, 'claims cite trial ids');
+  assert.ok(ctx.length < 2800, `length ${ctx.length}`);
+  // Same failure again in the same session: silent.
+  assert.equal((await runHook(input, env, POST_HOOK)).out, null);
+  // A success is silent; an unknown host is silent.
+  assert.equal((await runHook({ ...input, session_id: 'e2', tool_response: { stdout: 'HTTP/1.1 200 OK\n\n{"items":[]}', stderr: '' } }, env, POST_HOOK)).out, null);
+  assert.equal((await runHook({ ...input, session_id: 'e2', tool_input: { command: 'curl -i https://example.com/x' } }, env, POST_HOOK)).out, null);
 });

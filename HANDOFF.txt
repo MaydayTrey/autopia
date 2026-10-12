@@ -144,9 +144,17 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       pointer to the full sheet. github: 15.7KB -> 4.6KB, every line
       actionable. Hook budget 5000 chars, section-boundary cut. CLI: docs
       --brief. Plugin 0.1.2 (pushed? see git log).
-   2. NOT DONE: error-path PostToolUse hook (on a 4xx/5xx from a covered
-      host in a Bash/WebFetch result, inject top search_claims hits).
-      Highest value per token; the agent is already stuck. Next build.
+   2. DONE: error-path PostToolUse hook (plugin/scripts/autopia-post-hook.mjs,
+      shared plumbing in client.mjs). detectFailure(): the command/URL must
+      be a covered host (URL-shaped), the tool_response must carry an HTTP
+      4xx/5xx status line, a JSON "status" field, or an error message in a
+      body that reads as an error. Then search_claims {query: message +
+      last path segment + "HTTP <status>", tool: host, limit 5} and inject
+      the compact hits (~1.5KB), once per host|status|message per session.
+      Smoke-tested on the hosted server with GitHub 422 "Validation Failed"
+      on issues: first hit was the issue_field_values claim. Plugin 0.3.0.
+      Upstream issue draft for github/rest-api-description written to
+      docs/upstream/github-rest-api-description.md (Trey files it).
    3. DONE (Trey said yes 2026-10-13): ANONYMOUS READS. /mcp with no
       credential (or a bearer that is not an ak_ key, e.g. an unexpanded
       ${user_config.autopia_key}) is identity 'anon': all read tools, under

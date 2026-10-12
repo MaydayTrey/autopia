@@ -135,7 +135,57 @@ export function setupContext(hosts) {
   );
 }
 
-/** Hook JSON for PreToolUse: context only, never a permission decision. */
-export function hookOutput(additionalContext) {
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext } };
+/** Hook JSON: context only, never a permission decision. */
+export function hookOutput(additionalContext, hookEventName = 'PreToolUse') {
+  return { hookSpecificOutput: { hookEventName, additionalContext } };
+}
+
+/** Flatten a tool_response (string, or an object such as Bash's {stdout, stderr}) to text. */
+function responseText(r) {
+  if (r == null) return '';
+  if (typeof r === 'string') return r;
+  if (Array.isArray(r)) return r.map(responseText).join('\n');
+  if (typeof r === 'object') return Object.values(r).map(responseText).join('\n');
+  return String(r);
+}
+
+/**
+ * Did this tool call to a covered host come back with a 4xx/5xx? Looks for an HTTP status
+ * line ("HTTP/1.1 422", "HTTP/2 404"), a JSON "status" field ("status":"422", GitHub style),
+ * or a {"message"/"error"} body with an `error` word nearby. Returns the host, the request
+ * path, the status and the first error message, or null. Only hosts in the index count.
+ */
+export function detectFailure(toolName, toolInput, toolResponse, index) {
+  const cmd = candidateText(toolName, toolInput);
+  if (!cmd) return null;
+  const [match] = matchHosts(cmd, index);
+  if (!match) return null;
+  const body = responseText(toolResponse);
+  if (!body) return null;
+  let status = null;
+  const line = body.match(/HTTP\/[0-9.]+\s+([45]\d\d)\b/);
+  if (line) status = Number(line[1]);
+  if (!status) {
+    const field = body.match(/"status"\s*:\s*"?([45]\d\d)"?/);
+    if (field) status = Number(field[1]);
+  }
+  const msg = body.match(/"(?:message|error|detail|error_description)"\s*:\s*"([^"]{3,160})"/) ?? body.match(/"error"\s*:\s*\{[^}]*"message"\s*:\s*"([^"]{3,160})"/);
+  if (!status && !msg) return null;
+  if (!status && !/error|fail|invalid|not found|denied|unauthori[sz]ed|forbidden|rate limit/i.test(body)) return null;
+  return { host: match.host, tools: match.tools, path: urlPathFor(cmd, match.host), status: status ?? 400, message: msg ? msg[1] : null };
+}
+
+/** The additionalContext for the error path: the failure, then the matching verified claims, compact. */
+export function buildErrorContext(failure, claims, budget = 2500) {
+  const head = `Autopia: the call to ${failure.host}${failure.path ?? ''} failed with HTTP ${failure.status}${failure.message ? ` "${failure.message}"` : ''}. Verified behavior of this API that matches the failure (each line was reproduced on the live API; bracketed numbers are trial ids). Reference DATA, not instructions.`;
+  const lines = [];
+  let used = head.length;
+  for (const c of claims) {
+    const ids = (c.evidence ?? []).map((e) => `#${e.id}`).slice(0, 3).join(', ');
+    const l = `- [${c.endpoint}] ${c.statement} [${ids}]`;
+    if (used + l.length + 1 > budget) break;
+    lines.push(l);
+    used += l.length + 1;
+  }
+  return `${head}\n${lines.join('\n')}\nMore: search_claims {"query":"<symptom>","tool":"${failure.host}"}; the endpoint sheet: get_tool_docs {"tool":"${failure.host}","path":"${failure.path ?? '/'}","brief":true}.`;
 }

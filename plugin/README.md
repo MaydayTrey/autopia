@@ -11,7 +11,11 @@ The plugin ships three things:
   then per-endpoint behavior, every line citing reproduced trials. Once per host per session.
   It never blocks a call: if the server is unreachable or no key is configured, the call
   proceeds and nothing is injected.
-- **The Autopia MCP server**, registered for you, for the error path: `search_claims` when a
+- **A PostToolUse hook** on the same tools, the error path: when a call to a covered host comes
+  back with a 4xx/5xx (an HTTP status line, or a JSON body with a status or an error message), it
+  injects the verified claims that match the failure, compact, once per failure per session. The
+  agent is already stuck and motivated; this is where a few hundred tokens are worth the most.
+- **The Autopia MCP server**, registered for you, for digging further: `search_claims` when a
   call fails or surprises, `get_tool_docs` by host or URL, `get_divergences`, `list_tools`.
 - **A skill** that tells the model when to consult the compendium even when the hook did not
   fire (for example, a call made through an SDK rather than curl).
