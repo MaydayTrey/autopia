@@ -36,9 +36,13 @@ STATE
        today.
     3. Disable the run-all-llm workflow (the only paid call) + Anthropic
        spend limit.
-  USAGE: 'npm run autopia -- usage --days 7' (per key/tool from api_calls;
-  anonymous calls land with key_id null, same bucket as the admin token:
-  TODO add an identity column so anon traffic is visible on its own);
+  USAGE: 'npm run autopia -- usage --days 7'. Headline line first: distinct
+  anonymous callers (salted sha256 prefix of the client address, column
+  api_calls.caller; salt AUTOPIA_CALLER_SALT or the admin token), keyed
+  callers, admin calls, total; then per day; then per key/tool. Migration
+  0005 added api_calls.identity + caller (applies on next connect). Before
+  2026-10-13 every call is logged as key or admin, so anon counts start
+  from that date;
   Render dashboard -> Metrics/Logs for requests and bandwidth; Neon console
   for compute hours; GitHub Insights -> Traffic for repo views/clones.
 
@@ -54,7 +58,7 @@ NEXT (in order)
   3. Follow up #7322; file the second GitHub finding after a response.
   4. Every plugin release: bump plugin.json AND server.json versions,
      'mcp-publisher publish server.json', 'claude plugin update'.
-  5. Usage identity column (anon vs admin vs key) + a tiny /stats line.
+  5. DONE: usage identity + distinct anonymous callers (see USAGE above).
 
 >>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 

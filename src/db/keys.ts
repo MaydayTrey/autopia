@@ -52,8 +52,15 @@ export async function verifyKey(db: Db, presented: string, now = new Date()): Pr
   return { ok: true, key, callsToday: Number(n) };
 }
 
-export async function logCall(db: Db, keyId: number | null, tool: string, target: string | null, ok: boolean, ms: number): Promise<void> {
-  await db.insert(schema.apiCalls).values({ keyId, tool, target, ok, ms: Math.round(ms) });
+export type CallIdentity = 'key' | 'admin' | 'anon' | 'open' | 'stdio';
+
+export async function logCall(db: Db, keyId: number | null, tool: string, target: string | null, ok: boolean, ms: number, identity: CallIdentity = keyId === null ? 'admin' : 'key', caller: string | null = null): Promise<void> {
+  await db.insert(schema.apiCalls).values({ keyId, identity, caller, tool, target, ok, ms: Math.round(ms) });
+}
+
+/** A stable, salted, truncated hash of a client address: enough to count distinct anonymous callers, not enough to recover the address. */
+export function callerHash(ip: string, salt: string): string {
+  return createHash('sha256').update(`${salt}|${ip}`).digest('hex').slice(0, 16);
 }
 
 export async function listKeys(db: Db) {
@@ -81,12 +88,30 @@ export async function revokeKey(db: Db, nameOrPrefix: string): Promise<ApiKey | 
 export async function usageSummary(db: Db, days = 7) {
   const since = new Date(Date.now() - days * 86_400_000);
   const byKeyTool = await db
-    .select({ keyId: schema.apiCalls.keyId, name: schema.apiKeys.name, tool: schema.apiCalls.tool, calls: sql<number>`count(*)::int`, errors: sql<number>`sum(case when ${schema.apiCalls.ok} then 0 else 1 end)::int`, avgMs: sql<number>`avg(${schema.apiCalls.ms})::int` })
+    .select({ keyId: schema.apiCalls.keyId, identity: schema.apiCalls.identity, name: schema.apiKeys.name, tool: schema.apiCalls.tool, calls: sql<number>`count(*)::int`, errors: sql<number>`sum(case when ${schema.apiCalls.ok} then 0 else 1 end)::int`, avgMs: sql<number>`avg(${schema.apiCalls.ms})::int` })
     .from(schema.apiCalls)
     .leftJoin(schema.apiKeys, eq(schema.apiCalls.keyId, schema.apiKeys.id))
     .where(gte(schema.apiCalls.createdAt, since))
-    .groupBy(schema.apiCalls.keyId, schema.apiKeys.name, schema.apiCalls.tool)
+    .groupBy(schema.apiCalls.keyId, schema.apiCalls.identity, schema.apiKeys.name, schema.apiCalls.tool)
     .orderBy(desc(sql`count(*)`));
+  // The question behind all of this: how many different people (well, addresses) are using it?
+  const [callers] = await db
+    .select({
+      anonCallers: sql<number>`count(distinct case when ${schema.apiCalls.identity} = 'anon' then ${schema.apiCalls.caller} end)::int`,
+      anonCalls: sql<number>`sum(case when ${schema.apiCalls.identity} = 'anon' then 1 else 0 end)::int`,
+      keys: sql<number>`count(distinct ${schema.apiCalls.keyId})::int`,
+      keyCalls: sql<number>`sum(case when ${schema.apiCalls.identity} = 'key' then 1 else 0 end)::int`,
+      adminCalls: sql<number>`sum(case when ${schema.apiCalls.identity} = 'admin' then 1 else 0 end)::int`,
+      total: sql<number>`count(*)::int`,
+    })
+    .from(schema.apiCalls)
+    .where(gte(schema.apiCalls.createdAt, since));
+  const perDay = await db
+    .select({ day: sql<string>`to_char(${schema.apiCalls.createdAt}, 'YYYY-MM-DD')`, calls: sql<number>`count(*)::int`, anonCallers: sql<number>`count(distinct case when ${schema.apiCalls.identity} = 'anon' then ${schema.apiCalls.caller} end)::int` })
+    .from(schema.apiCalls)
+    .where(gte(schema.apiCalls.createdAt, since))
+    .groupBy(sql`to_char(${schema.apiCalls.createdAt}, 'YYYY-MM-DD')`)
+    .orderBy(sql`to_char(${schema.apiCalls.createdAt}, 'YYYY-MM-DD')`);
   const byTarget = await db
     .select({ target: schema.apiCalls.target, calls: sql<number>`count(*)::int` })
     .from(schema.apiCalls)
@@ -94,5 +119,6 @@ export async function usageSummary(db: Db, days = 7) {
     .groupBy(schema.apiCalls.target)
     .orderBy(desc(sql`count(*)`))
     .limit(20);
-  return { since, byKeyTool: byKeyTool.map((r) => ({ ...r, name: r.name ?? (r.keyId === null ? 'admin-token' : `#${r.keyId}`) })), byTarget };
+  const label = (r: { keyId: number | null; identity: string; name: string | null }) => r.name ?? (r.identity === 'anon' ? 'anonymous' : r.identity === 'admin' ? 'admin-token' : r.identity === 'open' ? 'open-endpoint' : r.keyId === null ? r.identity : `#${r.keyId}`);
+  return { since, byKeyTool: byKeyTool.map((r) => ({ ...r, name: label(r) })), byTarget, callers: { ...callers, keys: callers.keys ?? 0 }, perDay };
 }

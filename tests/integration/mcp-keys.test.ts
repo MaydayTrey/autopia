@@ -119,6 +119,12 @@ test('keys: a valid key works and its calls are logged with tool and target', as
   const missing = await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'nope' } });
   assert.equal(missing.isError, true);
   await mcp.close();
+  // Two anonymous TOOL calls from this one address (rawPost only lists tools, which is not logged).
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_tools', arguments: {} } }) });
+    await r.text();
+    assert.equal(r.status, 200);
+  }
   // read the log from the server's database after it has had a moment to write
   await new Promise((r) => setTimeout(r, 300));
   child.kill();
@@ -130,6 +136,11 @@ test('keys: a valid key works and its calls are logged with tool and target', as
   assert.ok(alice.some((r) => r.tool === 'get_divergences' && r.calls === 1 && r.errors === 0), JSON.stringify(alice));
   assert.ok(alice.some((r) => r.tool === 'get_tool_docs' && r.errors === 1), 'the failed lookup is logged as an error');
   assert.ok(u.byTarget.some((t) => t.target === 'mock-items'), 'target demand is recorded');
+  // The anonymous rawPost calls earlier in this file were logged as anonymous, with a hashed caller, and counted once as a distinct caller.
+  assert.ok(u.callers.anonCalls >= 1, JSON.stringify(u.callers));
+  assert.equal(u.callers.anonCallers, 1, 'one address made all the anonymous calls');
+  assert.ok(u.byKeyTool.some((r) => r.name === 'anonymous' && r.identity === 'anon'));
+  assert.ok(u.perDay.length >= 1 && u.perDay[0].calls >= 1);
   const keys = await listKeys(db);
   assert.ok(keys.find((k) => k.name === 'alice')!.last_used_at, 'last_used_at updated');
   await client.closeDb();

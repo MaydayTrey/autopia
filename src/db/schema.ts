@@ -164,7 +164,11 @@ export const apiCalls = pgTable(
   'api_calls',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    keyId: bigint('key_id', { mode: 'number' }).references(() => apiKeys.id), // null = legacy admin token
+    keyId: bigint('key_id', { mode: 'number' }).references(() => apiKeys.id), // null = admin token, anonymous, open or stdio
+    /** key | admin | anon | open | stdio: how the caller was identified. */
+    identity: text('identity').notNull().default('key'),
+    /** Anonymous callers only: a salted hash prefix of the client address, so distinct callers can be counted without storing addresses. */
+    caller: text('caller'),
     tool: text('tool').notNull(),
     target: text('target'), // the tool-name argument when present, for per-API demand
     ok: boolean('ok').notNull(),

@@ -26,7 +26,7 @@ import { closeDb, getDb } from '../db/client.js';
 import { compactClaim, listTools, listVersions, pathOf, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { memo } from '../db/cache.js';
-import { logCall, verifyKey } from '../db/keys.js';
+import { callerHash, logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
 import { importContribution } from '../db/contributions.js';
 import { loadEnv } from '../worker/env.js';
@@ -44,6 +44,8 @@ export interface ServerContext {
   logCalls: boolean;
   /** How the caller was identified. Submitting targets requires 'key' or 'admin'; 'anon' is a rate-limited read-only caller. */
   identity: 'key' | 'admin' | 'open' | 'stdio' | 'anon';
+  /** Anonymous callers: a salted hash prefix of the client address, for counting distinct callers. */
+  caller?: string;
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
@@ -90,7 +92,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
         if (ctx.logCalls) {
           const toolArg = (args as unknown as { tool?: unknown }).tool;
           const target = typeof toolArg === 'string' ? toolArg : null;
-          logCall(await getDb(), ctx.keyId, name, target, ok, performance.now() - t0).catch((e) => log.warn('mcp', `usage log failed: ${(e as Error).message}`));
+          logCall(await getDb(), ctx.keyId, name, target, ok, performance.now() - t0, ctx.identity, ctx.caller ?? null).catch((e) => log.warn('mcp', `usage log failed: ${(e as Error).message}`));
         }
       }
     }) as never);
@@ -296,6 +298,8 @@ async function main() {
   // environment when the hosting can take it.
   const anon = new AnonLimiter(Number(process.env.AUTOPIA_ANON_PER_MINUTE ?? 30), Number(process.env.AUTOPIA_ANON_PER_DAY ?? 300), Number(process.env.AUTOPIA_ANON_DAILY_CAP ?? 5_000));
   app.set('trust proxy', true); // Render / Fly terminate TLS; req.ip is then the client, not the proxy
+  // Salt for the anonymous caller hash: distinct-caller counts survive restarts, addresses are never stored.
+  const callerSalt = process.env.AUTOPIA_CALLER_SALT || adminToken || 'autopia';
   if (adminToken) log.info('mcp', 'admin token configured; per-user ak_ keys also accepted on /mcp');
   if (openEndpoint) log.warn('mcp', 'AUTOPIA_MCP_OPEN=1: /mcp accepts unauthenticated calls without limits');
   else if (anonReads) log.info('mcp', `anonymous reads on /mcp: ${anon.perMinute}/min and ${anon.perDay}/day per IP, ${anon.dailyCap}/day overall, responses cached ${Math.round(Number(process.env.AUTOPIA_CACHE_TTL_MS ?? 600_000) / 60_000)} min; keys for request_target and /contribute`);
@@ -324,7 +328,7 @@ async function main() {
         res.status(429).set('retry-after', String(verdict.retryAfterSeconds)).json({ error: verdict.reason, hint: 'A per-user key (Authorization: Bearer ak_...) has its own quota; see the README.' });
         return;
       }
-      ctx = { keyId: null, logCalls: true, identity: 'anon' };
+      ctx = { keyId: null, logCalls: true, identity: 'anon', caller: callerHash(req.ip ?? 'unknown', callerSalt) };
     } else {
       res.status(401).json({ error: 'unauthorized' });
       return;

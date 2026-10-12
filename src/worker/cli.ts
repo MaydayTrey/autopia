@@ -265,6 +265,9 @@ async function main() {
       const db = await getDb();
       const u = await usageSummary(db, values.days ? Number(values.days) : 7);
       out(`usage since ${u.since.toISOString()}`);
+      const c = u.callers;
+      out(`  callers: ${c.anonCallers} distinct anonymous (${c.anonCalls} calls), ${c.keys} key(s) (${c.keyCalls} calls), admin ${c.adminCalls} calls; ${c.total} calls in all`);
+      if (u.perDay.length) out(`  per day: ${u.perDay.map((d) => `${d.day} ${d.calls} calls/${d.anonCallers} anon callers`).join(' | ')}`);
       for (const r of u.byKeyTool) out(`  ${r.name.padEnd(24)} ${r.tool.padEnd(20)} calls ${String(r.calls).padStart(6)}  errors ${String(r.errors).padStart(4)}  avg ${String(r.avgMs).padStart(5)}ms`);
       if (u.byTarget.length) {
         out('  most asked-about tools:');
