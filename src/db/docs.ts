@@ -276,7 +276,19 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   const claims = scoped ? allClaims.filter((c) => c.endpoint === scoped) : allClaims;
 
   lines.push(scoped ? `# ${k.tool}: verified behavior for ${scoped}` : `# ${k.tool}: verified behavior`);
-  if (opts.path && !scoped && k.version) lines.push('', `No covered endpoint matches the path ${opts.path}; this is the whole tool. The covered endpoints are listed at the end.`);
+  if (opts.path && !scoped && k.version) {
+    if (opts.brief) {
+      // A call to an uncovered path on a covered host: the brief answer is "not covered" plus the
+      // directory, not the whole tool. (A whole-tool brief for api.github.com/.../actions/runs
+      // cost 4KB of endpoints the caller was not using.)
+      lines.push('', `No covered endpoint matches the path ${opts.path}. Nothing below describes that path; the compendium has not probed it. These are the endpoints it has:`);
+      lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, null, true));
+      lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
+      lines.push('', `Whole-tool sheet (tool-wide auth and pagination behavior may still apply): get_tool_docs {"tool":"${k.tool}","brief":true}.`);
+      return lines.join('\n');
+    }
+    lines.push('', `No covered endpoint matches the path ${opts.path}; this is the whole tool. The covered endpoints are listed at the end.`);
+  }
   if (!k.version) {
     lines.push('', 'No versions recorded yet.');
     return lines.join('\n');

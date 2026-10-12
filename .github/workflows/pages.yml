@@ -33,9 +33,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      # Pages must be enabled once by hand: repository Settings -> Pages -> Source: GitHub Actions.
+      # (The workflow token is not allowed to enable it.)
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true   # turns Pages on (source: GitHub Actions) the first time, if the token is allowed to
       - run: npx tsx scripts/build-site.ts --out site --base "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

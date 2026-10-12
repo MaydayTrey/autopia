@@ -98,6 +98,13 @@ test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences firs
   const nomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here' } })).content as { text: string }[];
   assert.match(nomatch[0].text, /No covered endpoint matches the path \/nope\/here/);
   assert.match(nomatch[0].text, /## Other endpoints covered \(\d+\)/);
+  // brief + no match: "not covered" plus the directory only, no whole-tool divergences or watch-outs.
+  const briefNomatch = (await mcp.callTool({ name: 'get_tool_docs', arguments: { tool: 'mock-items', version: versionIds[0], path: '/nope/here', brief: true } })).content as { text: string }[];
+  assert.match(briefNomatch[0].text, /No covered endpoint matches the path \/nope\/here\. Nothing below describes that path/);
+  assert.match(briefNomatch[0].text, /## Other endpoints covered \(2\)/);
+  assert.match(briefNomatch[0].text, /## What this compendium covers/);
+  assert.doesNotMatch(briefNomatch[0].text, /## Where behavior contradicts the spec/);
+  assert.doesNotMatch(briefNomatch[0].text, /## Watch out for/);
   // Every sheet ends by saying what the compendium does and does not cover.
   for (const t of [md, brief[0].text, scoped[0].text, viaUrl[0].text]) {
     assert.match(t, /## What this compendium covers/);
