@@ -5,6 +5,8 @@ on:
   schedule:
     - cron: "0 8 * * 0"   # 08:00 UTC Sundays
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   run-all-llm:
     runs-on: ubuntu-latest

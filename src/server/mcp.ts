@@ -18,6 +18,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { closeDb, getDb } from '../db/client.js';
@@ -44,6 +45,13 @@ export interface ServerContext {
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
+
+/** Constant-time string equality for bearer tokens (length leak is acceptable: the token is random). */
+function sameSecret(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
 /**
  * Injected into the client's context at connect time. Written for the MOMENT an agent
@@ -237,6 +245,7 @@ async function main() {
   const { default: express } = await import('express');
   const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
   const app = express();
+  app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
 
   // Liveness: answers within 5s no matter what the database is doing, so a platform health
@@ -267,7 +276,7 @@ async function main() {
         return;
       }
       ctx = { keyId: v.key.id, logCalls: true, identity: 'key' };
-    } else if (adminToken && presented === adminToken) {
+    } else if (adminToken && sameSecret(presented, adminToken)) {
       ctx = { keyId: null, logCalls: true, identity: 'admin' };
     } else if (!openEndpoint) {
       res.status(401).json({ error: 'unauthorized' });
@@ -301,7 +310,7 @@ async function main() {
         return;
       }
       contributor = { keyId: v.key.id, prefix: v.key.prefix };
-    } else if (adminToken && presented === adminToken) {
+    } else if (adminToken && sameSecret(presented, adminToken)) {
       contributor = { keyId: null, prefix: 'admin' };
     }
     if (!contributor) {
