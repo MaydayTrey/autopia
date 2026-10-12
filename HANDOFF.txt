@@ -111,11 +111,12 @@ PLUGIN SHIPPED (2026-10-12, late; local commit, NOT pushed): plugin/ is a Claude
       'accepts'. github-rest run #51 (rules-only) shows the commits/issues
       contrast; run #52 (rules-only, started 2026-10-13 ~01:1x) applies the
       full-page wording. Unit test covers every branch.
-   b. NOT DONE: docs.ts padding. Collapse spec divergences that are one
-      pattern across endpoints into one line (github: 12 lines = 'enum /
-      integer not validated on sort, order, page, per_page'); cap inline
-      evidence to ~6 ids + 'and N more'; a 'common to most endpoints (not
-      X)' group for nulls/timestamps lines repeated on all but one endpoint.
+   b. DONE (6d30f8a): docs.ts collapseDivergences() (one line per rule
+      family: type/enum/max/min/required, across params and endpoints;
+      LLM and lone divergences keep their line), formatEvidence() caps
+      inline ids at 8 (+N more), commonAcrossEndpoints() also takes a rule
+      holding on all endpoints but one and names the exception. github
+      sheet: 12 divergence lines -> 2. Unit: tests/unit/docs-sheet.test.ts.
    c. NOT DONE: dogfood the plugin in a real session (claude --plugin-dir
       ./plugin from the repo, then curl api.github.com in Bash) and watch
       the injection; then 'keys revoke plugin-dev'.
