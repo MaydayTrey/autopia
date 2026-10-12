@@ -3,3 +3,6 @@ data/
 .env
 *.log
 /site/
+mcp-publisher.exe
+mcp-publisher
+*.tar.gz
