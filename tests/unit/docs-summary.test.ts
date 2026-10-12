@@ -48,7 +48,7 @@ test('renderParameterLines collapses to ONE line when every parameter rejects ev
   const lines = renderParameterLines(summarizeParameters(claims));
   assert.equal(lines.length, 1);
   assert.match(lines[0], /All 3 probed parameters \(`a`, `b`, `c`\) reject every invalid value tried .* with HTTP 400/);
-  assert.match(lines[0], /\[#\d+(, #\d+)+\]/, 'merged evidence');
+  assert.match(lines[0], /\[#\d+(, #\d+)+, \+\d+ more\]/, 'merged evidence, capped inline (13 ids -> 8 shown)');
 });
 
 test('renderParameterLines spells out only the parameters that behave differently', () => {

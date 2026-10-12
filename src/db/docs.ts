@@ -14,7 +14,14 @@
 import type { Db } from './client.js';
 import { toolKnowledge, type ClaimView } from './queries.js';
 
-const ev = (c: ClaimView | ClaimView[]) => `[${(Array.isArray(c) ? c : [c]).flatMap((x) => x.evidence.map((e) => `#${e.id}`)).filter((v, i, a) => a.indexOf(v) === i).join(', ')}]`;
+/** Inline evidence: the first few trial ids, then a count. 38 ids on one line is noise at the moment of use; get_tool_knowledge has them all. */
+const EVIDENCE_INLINE_MAX = 8;
+export function formatEvidence(c: ClaimView | ClaimView[], max = EVIDENCE_INLINE_MAX): string {
+  const ids = (Array.isArray(c) ? c : [c]).flatMap((x) => x.evidence.map((e) => `#${e.id}`)).filter((v, i, a) => a.indexOf(v) === i);
+  const shown = ids.slice(0, max);
+  return `[${shown.join(', ')}${ids.length > max ? `, +${ids.length - max} more` : ''}]`;
+}
+const ev = formatEvidence;
 
 /** Human label for a validation probe, from the rule name in the claim key. */
 const PROBE_LABEL: Record<string, string> = {
@@ -164,7 +171,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   const spec = claims.filter((c) => c.divergence_type === 'spec');
   lines.push('', `## Where behavior contradicts the spec (${spec.length})`);
   if (spec.length === 0) lines.push('', 'None found.');
-  for (const c of spec) lines.push('', `- **${c.endpoint}** ${c.statement} Spec says: ${c.spec_says ?? 'n/a'}. ${ev(c)}`);
+  for (const d of collapseDivergences(spec)) lines.push('', d.line);
 
   const sib = claims.filter((c) => c.sibling_note);
   lines.push('', `## Where this tool differs from sibling tools (${sib.length})`);
@@ -184,7 +191,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   const common = commonAcrossEndpoints(body, endpoints);
   if (common.length) {
     lines.push('', endpoints.length === 2 ? '## Behavior common to both endpoints' : `## Behavior common to all ${endpoints.length} endpoints`);
-    for (const g of common) lines.push(`- ${g.statement} ${ev(g.claims)}`);
+    for (const g of common) lines.push(`- ${g.statement}${g.except ? ` (every endpoint except ${g.except})` : ''} ${ev(g.claims)}`);
   }
   const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
 
@@ -223,12 +230,57 @@ function isActionableShape(c: ClaimView): boolean {
   return true;
 }
 
+/** Rule families whose spec divergences read as one pattern when they recur across parameters and endpoints. */
+const DIVERGENCE_FAMILY: Record<string, { key: string; line: (params: string, status: string) => string }> = {
+  wrong_type: { key: 'type', line: (p, s) => `Declared types are not enforced: ${p} accept a wrong-type value ("abc") with ${s}.` },
+  enum_invalid: { key: 'enum', line: (p, s) => `Documented enums are not enforced: ${p} accept values outside their enum with ${s}.` },
+  boundary_above_max: { key: 'max', line: (p, s) => `Documented maximums are not enforced: ${p} accept values above the maximum with ${s}.` },
+  boundary_far_above_max: { key: 'max', line: (p, s) => `Documented maximums are not enforced: ${p} accept values above the maximum with ${s}.` },
+  boundary_below_min: { key: 'min', line: (p, s) => `Documented minimums are not enforced: ${p} accept values below the minimum with ${s}.` },
+  required_omitted: { key: 'required', line: (p, s) => `Documented required parameters are not required: ${p} can be omitted with ${s}.` },
+};
+
+/**
+ * The spec-divergence section, with one line per PATTERN rather than one per claim: GitHub's
+ * twelve divergences are "enum and integer types are not validated on sort, order, page and
+ * per_page", which should take one line, not a third of the money view. Only rule claims from
+ * the families above collapse, and only when two or more share a family; everything else
+ * (LLM divergences, lone claims) keeps its own line.
+ */
+export function collapseDivergences(spec: ClaimView[]): { line: string; claims: ClaimView[] }[] {
+  const groups = new Map<string, ClaimView[]>();
+  const single: ClaimView[] = [];
+  for (const c of spec) {
+    const rule = c.source === 'rules' ? ruleOf(c) : null;
+    const fam = rule ? DIVERGENCE_FAMILY[rule] : undefined;
+    if (fam) groups.set(fam.key, [...(groups.get(fam.key) ?? []), c]);
+    else single.push(c);
+  }
+  const out: { line: string; claims: ClaimView[] }[] = [];
+  for (const [key, list] of groups) {
+    if (list.length < 2) {
+      single.push(...list);
+      continue;
+    }
+    const fam = Object.values(DIVERGENCE_FAMILY).find((f) => f.key === key)!;
+    const params = [...new Set(list.map((c) => c.param).filter((p): p is string => !!p))].sort().map((p) => `"${p}"`);
+    const eps = [...new Set(list.map((c) => c.endpoint))].sort();
+    const statuses = [...new Set(list.map((c) => probeStatus(c)).filter((s): s is number => s !== null))].sort();
+    const status = statuses.length ? statuses.map((s) => `HTTP ${s}`).join('/') : 'a success status';
+    const specs = [...new Set(list.map((c) => c.spec_says).filter((s): s is string => !!s))];
+    const where = eps.length === 1 ? eps[0] : `${eps.length} endpoints: ${eps.join(', ')}`;
+    out.push({ line: `- **One pattern, ${list.length} claims** ${fam.line(params.join(', '), status)} On ${where}. Spec says: ${specs.slice(0, 3).join('; ')}${specs.length > 3 ? '; ...' : ''}. ${ev(list)}`, claims: list });
+  }
+  for (const c of single.sort(byKey)) out.push({ line: `- **${c.endpoint}** ${c.statement} Spec says: ${c.spec_says ?? 'n/a'}. ${ev(c)}`, claims: [c] });
+  return out;
+}
+
 /**
  * Group endpoint-level claims by their rule and parameter; when the same rule produced the same
  * verdict and status on EVERY endpoint, present it once. The statement is taken from the first
  * endpoint with endpoint-specific wording removed where it is just the path.
  */
-function commonAcrossEndpoints(body: ClaimView[], endpoints: string[]): { statement: string; claims: ClaimView[] }[] {
+export function commonAcrossEndpoints(body: ClaimView[], endpoints: string[]): { statement: string; claims: ClaimView[]; except?: string }[] {
   if (endpoints.length < 2) return [];
   const groups = new Map<string, ClaimView[]>();
   for (const c of body) {
@@ -238,12 +290,16 @@ function commonAcrossEndpoints(body: ClaimView[], endpoints: string[]): { statem
     const status = probeStatus(c);
     groups.set(`${rule}|${c.param ?? '-'}|${c.verdict}|${status}`, [...(groups.get(`${rule}|${c.param ?? '-'}|${c.verdict}|${status}`) ?? []), c]);
   }
-  const out: { statement: string; claims: ClaimView[] }[] = [];
+  const out: { statement: string; claims: ClaimView[]; except?: string }[] = [];
   for (const [, list] of groups) {
     const eps = new Set(list.map((c) => c.endpoint));
-    if (eps.size !== endpoints.length) continue;
+    // Every endpoint, or (with 3+ endpoints) every endpoint but one: the same line repeated six
+    // times under seven endpoints is padding; name the exception instead.
+    const allButOne = endpoints.length >= 3 && eps.size === endpoints.length - 1;
+    if (eps.size !== endpoints.length && !allButOne) continue;
     if (list[0].kind === 'response_shape' && !isActionableShape(list[0])) continue;
-    out.push({ statement: list[0].statement.replace(/\s*\(without it: HTTP \d+\)/, ''), claims: list });
+    const except = allButOne ? endpoints.find((e) => !eps.has(e)) : undefined;
+    out.push({ statement: list[0].statement.replace(/\s*\(without it: HTTP \d+\)/, ''), claims: list, ...(except ? { except } : {}) });
   }
   return out.sort((a, b) => byKind(a.claims[0], b.claims[0]));
 }
