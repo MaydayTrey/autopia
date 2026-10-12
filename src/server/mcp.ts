@@ -125,9 +125,9 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   /** Anonymous page sizes are capped so one call cannot pull the whole table. */
   const capLimit = (limit: number | undefined, dflt: number, anonMax: number) => (anonCaller ? Math.min(limit ?? dflt, anonMax) : (limit ?? dflt));
 
-  tool('list_tools', { title: 'List tools', description: 'Which APIs the compendium covers, each with the HOSTS its trials hit (match the URL you are about to call), trust tier, version count and verified-claim / divergence counts. Call once per session; then get_tool_docs for the host you are about to call.', inputSchema: {} }, async () => text(await memo('list_tools', async () => listTools(await getDb()))));
+  tool('list_tools', { title: 'List tools', description: 'The APIs the compendium covers: each with the hosts its trials hit, trust tier, version count, and counts of verified claims and spec divergences.', inputSchema: {} }, async () => text(await memo('list_tools', async () => listTools(await getDb()))));
 
-  tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'Spec versions of one API, newest first, each fingerprinted by its spec hash. Use with get_version_diff when a spec changed and you want to know what changed in BEHAVIOR.', inputSchema: { tool: TOOL_ARG } }, async ({ tool }) => {
+  tool<{ tool: string }>('list_versions', { title: 'List versions', description: 'The spec versions recorded for one API, newest first, each fingerprinted by its spec hash. The ids identify versions for get_version_diff.', inputSchema: { tool: TOOL_ARG } }, async ({ tool }) => {
     const db = await getDb();
     const r = await resolveToolRef(db, tool);
     if (!r) return noSuchTool(tool);
@@ -140,7 +140,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     'get_tool_knowledge',
     {
       title: 'Get tool knowledge',
-      description: 'Every VERIFIED claim about an API as structured records (latest version by default), paginated, spec divergences flagged, each with compact evidence (trial id, probe, status, request line). Use when you need to filter by kind or process claims programmatically; for the one-read summary before calling the API use get_tool_docs. verbose=true adds response previews.',
+      description: 'Every verified claim about an API as structured records (latest version by default): paginated, filterable by kind, spec divergences flagged, each with compact evidence (trial id, probe, status, request line). verbose=true adds response previews.',
       inputSchema: { tool: TOOL_ARG, version: z.number().int().optional().describe('tool_version id; default latest'), kind: z.string().optional().describe('required | type | auth | pagination | error_behavior | response_shape | undocumented_constraint | undocumented | other'), limit: z.number().int().min(1).max(500).optional().describe('default 100'), offset: z.number().int().min(0).optional(), verbose: z.boolean().optional() },
     },
     async ({ tool, version, kind, limit, offset, verbose }) => {
@@ -159,7 +159,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ tool: string; version?: number; verbose?: boolean }>(
     'get_divergences',
-    { title: 'Get divergences', description: 'Where the live API CONTRADICTS its own OpenAPI spec: documented limits not enforced, types not validated, required params not required, enums that accept other values. Read before trusting a spec-generated client or SDK for this API. Compact evidence; verbose=true adds response previews.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), verbose: z.boolean().optional() } },
+    { title: 'Get divergences', description: 'Where the live API contradicts its own OpenAPI spec: documented limits not enforced, types not validated, required parameters not required, enums accepting other values. Compact evidence; verbose=true adds response previews.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), verbose: z.boolean().optional() } },
     async ({ tool, version, verbose }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
@@ -171,7 +171,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ query: string; tool?: string; limit?: number; verbose?: boolean }>(
     'search_claims',
-    { title: 'Search claims', description: 'Call this when an API call FAILED or behaved unexpectedly: an unexpected 4xx/5xx, a parameter that seems ignored, an odd page, wrong filter results. Full-text search over verified claims with the host and the symptom, e.g. "github per_page 500", "npm search size 0", "is latitude required on /v1/forecast". Optionally restrict to one API (name, host or URL). Compact evidence unless verbose=true.', inputSchema: { query: z.string(), tool: TOOL_ARG.optional(), limit: z.number().int().min(1).max(50).optional(), verbose: z.boolean().optional() } },
+    { title: 'Search claims', description: 'Full-text search over verified claims by host and symptom, e.g. "github per_page 500", "npm search size 0", "is latitude required on /v1/forecast": the lookup for an unexpected 4xx/5xx, a parameter that seems ignored, an odd page, or wrong filter results. Optionally restricted to one API (name, host or URL). Compact evidence unless verbose=true.', inputSchema: { query: z.string(), tool: TOOL_ARG.optional(), limit: z.number().int().min(1).max(50).optional(), verbose: z.boolean().optional() } },
     async ({ query, tool, limit, verbose }) => {
       let name: string | null = null;
       if (tool) {
@@ -186,7 +186,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ tool: string; version?: number; brief?: boolean; full?: boolean; path?: string }>(
     'get_tool_docs',
-    { title: 'Get tool docs', description: 'READ THIS BEFORE YOUR FIRST CALL to an API the compendium covers. Pass the host or URL you are about to call (api.github.com, https://registry.npmjs.org/-/v1/search) or the tool name. Returns a Markdown behavior sheet built only from verified claims: where the API contradicts its spec first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth). Each line cites the trial ids that back it. One read; no need to repeat it in the same session. Brief by default: spec divergences, undocumented rules, and auth / pagination / error behavior, i.e. what would change the request you send. full=true adds per-parameter validation, response shapes and every evidence id (about three times the size). Pass the request path (or a full URL as tool) to get ONLY the endpoint you are about to call plus a one-line index of the others; descend to another by passing its path.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), full: z.boolean().optional().describe('the whole sheet: per-parameter validation, response shapes, all evidence ids'), brief: z.boolean().optional().describe('deprecated: the default; brief=false is the same as full=true'), path: z.string().optional().describe('request path to scope to one endpoint, e.g. /repos/github/rest-api-description/issues; template segments match anything') } },
+    { title: 'Get tool docs', description: 'The verified behavior sheet for an API: Markdown built only from verified claims, with spec contradictions first, then sibling differences, undocumented rules, and per-endpoint behavior (error shapes, pagination, validation, auth), every line citing trial ids. Accepts a tool name, a host, or the full URL about to be called; a URL or path scopes the sheet to that endpoint plus a one-line index of the others. Brief by default (what would change the request); full=true adds per-parameter validation, response shapes and all evidence ids.', inputSchema: { tool: TOOL_ARG, version: z.number().int().optional(), full: z.boolean().optional().describe('the whole sheet: per-parameter validation, response shapes, all evidence ids'), brief: z.boolean().optional().describe('deprecated: the default; brief=false is the same as full=true'), path: z.string().optional().describe('request path to scope to one endpoint, e.g. /repos/github/rest-api-description/issues; template segments match anything') } },
     async ({ tool, version, brief, full, path }) => {
       const isBrief = brief ?? !full;
       const ref = await resolveName(tool);
@@ -199,7 +199,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ tool: string; from_version: number; to_version: number }>(
     'get_version_diff',
-    { title: 'Get version diff', description: 'What changed in verified BEHAVIOR between two spec versions of an API (changed / added / removed claims), as opposed to what changed in the spec text. Version ids come from list_versions.', inputSchema: { tool: TOOL_ARG, from_version: z.number().int(), to_version: z.number().int() } },
+    { title: 'Get version diff', description: 'What changed in verified behavior between two spec versions of an API (changed, added and removed claims), as opposed to what changed in the spec text.', inputSchema: { tool: TOOL_ARG, from_version: z.number().int(), to_version: z.number().int() } },
     async ({ tool, from_version, to_version }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
@@ -214,7 +214,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
       title: 'Request a target',
       annotations: { readOnlyHint: false, idempotentHint: false },
       description:
-        'The API you are about to call is NOT covered (not in list_tools)? Ask the compendium to test it. Pass a target object: { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. Scope: public read-only APIs with no credentials (no headers accepted). The request is validated now (spec fetched and parsed, battery planned) and processed rules-only on the worker\'s next pass; use get_request_status with the returned id. Requires a per-user key. Quota: 3 requests per key per day.',
+        'Queues a public, read-only, credential-free API for probing, from a target object { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. The spec is fetched and parsed and the battery planned immediately; probing runs rules-only on the worker\'s next pass. Requires a per-user key; quota 3 requests per key per day. Returns a request id for get_request_status.',
       inputSchema: { target: z.record(z.unknown()).describe('the target definition; see targets/*.json in the repo for examples') },
     },
     async ({ target }) => {
@@ -230,7 +230,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
 
   tool<{ request_id: number }>(
     'get_request_status',
-    { title: 'Get request status', description: 'Status of a target request: pending | running | done | failed, with the run id and summary once processed.', inputSchema: { request_id: z.number().int() } },
+    { title: 'Get request status', description: 'Status of a target request (pending, running, done or failed), with the run id and summary once processed.', inputSchema: { request_id: z.number().int() } },
     async ({ request_id }) => {
       const r = await getRequest(await getDb(), request_id);
       if (!r) return fail(`no such request: ${request_id}`);
