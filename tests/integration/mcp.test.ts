@@ -64,6 +64,13 @@ after(async () => {
 test('mcp: lists the expected tools', async () => {
   const { tools } = await mcp.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), ['get_divergences', 'get_request_status', 'get_tool_docs', 'get_tool_knowledge', 'get_version_diff', 'list_tools', 'list_versions', 'request_target', 'search_claims']);
+  // Directory policy: title, readOnlyHint and destructiveHint on every tool; only request_target writes.
+  for (const t of tools) {
+    const a = t.annotations as { title?: string; readOnlyHint?: boolean; destructiveHint?: boolean } | undefined;
+    assert.ok(a?.title, `${t.name} has a title annotation`);
+    assert.equal(a?.destructiveHint, false, t.name);
+    assert.equal(a?.readOnlyHint, t.name !== 'request_target', t.name);
+  }
 });
 
 test('mcp: get_tool_docs returns a Markdown behavior sheet with divergences first and trial ids', async () => {

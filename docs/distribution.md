@@ -76,7 +76,34 @@ account connected with push access to the repo:
 
 The docs also say a plugin that references a remote MCP server the author runs should submit
 that server separately as an **MCP connector** (same portal, "MCP connector"); do that after the
-registry entry exists.
+registry entry exists. What the directory policy (support.claude.com article 13145358) asks of
+a remote server, and where this one stands:
+
+- Streamable HTTP transport: yes (`https://autopia-mcp.onrender.com/mcp`).
+- Authentication: "remote servers that require authentication must use OAuth 2.0". This
+  server does not require authentication for reads, so submit it as a **no-auth** connector;
+  do not mention the bearer-key path in the form (keys only raise quotas and enable
+  request_target, which a directory user does not need).
+- Tool annotations `title`, `readOnlyHint`, `destructiveHint` on every tool: yes since
+  2026-10-12 (all read-only except request_target).
+- Tool names under 64 characters, narrow accurate descriptions, graceful errors, token
+  frugality: yes (brief sheets by default).
+- Privacy policy, support channel, documentation: plugin/PRIVACY.md, the issues page, the
+  README (same links as the plugin listing).
+- A testing account with sample data: not applicable, anonymous reads; say so.
+- At least three working example prompts (see below).
+- Proof that you control the endpoint: the server is yours but the domain is Render's; if the
+  portal asks for domain verification, the `autopia-mcp.onrender.com` subdomain cannot carry a
+  DNS record. Offer the GitHub repo (render.yaml, Dockerfile) and the registry entry as proof.
+
+Example prompts for the form:
+
+1. "Before I call the GitHub issues endpoint with since and per_page, what does Autopia say
+   actually happens with those parameters?"
+2. "I got a 422 from api.github.com saying 'since is not a valid date-time'. Search Autopia for
+   that error and tell me which formats work."
+3. "Which of the npm registry search parameters are silently ignored or clamped, according to
+   Autopia's verified claims?"
 
 ## 4. Upstream: GitHub's OpenAPI description
 

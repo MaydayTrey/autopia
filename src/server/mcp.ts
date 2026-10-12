@@ -80,8 +80,12 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   const server = new McpServer({ name: 'autopia', version: '0.1.0' }, { instructions: INSTRUCTIONS });
 
   /** Registers a tool with call logging (who, what, ok, ms) around the handler. */
-  const tool = <A extends Record<string, unknown>>(name: string, def: { title: string; description: string; inputSchema: Record<string, z.ZodTypeAny> }, handler: (args: A) => Promise<ToolResult>) => {
-    server.registerTool(name, def, (async (args: A) => {
+  // Annotations (hints for clients and the directory review): everything here reads the
+  // compendium and touches nothing else, except request_target, which queues work.
+  type Annotations = { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
+  const tool = <A extends Record<string, unknown>>(name: string, def: { title: string; description: string; inputSchema: Record<string, z.ZodTypeAny>; annotations?: Annotations }, handler: (args: A) => Promise<ToolResult>) => {
+    const annotations = { title: def.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, ...def.annotations };
+    server.registerTool(name, { title: def.title, description: def.description, inputSchema: def.inputSchema, annotations }, (async (args: A) => {
       const t0 = performance.now();
       let ok = false;
       try {
@@ -208,6 +212,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     'request_target',
     {
       title: 'Request a target',
+      annotations: { readOnlyHint: false, idempotentHint: false },
       description:
         'The API you are about to call is NOT covered (not in list_tools)? Ask the compendium to test it. Pass a target object: { name, spec_url (OpenAPI 3 document), category?, include_paths?, baseline? (valid values for required params per path), optional_values?, server? }. Scope: public read-only APIs with no credentials (no headers accepted). The request is validated now (spec fetched and parsed, battery planned) and processed rules-only on the worker\'s next pass; use get_request_status with the returned id. Requires a per-user key. Quota: 3 requests per key per day.',
       inputSchema: { target: z.record(z.unknown()).describe('the target definition; see targets/*.json in the repo for examples') },
