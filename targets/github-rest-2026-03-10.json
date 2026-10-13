@@ -1,0 +1,36 @@
+{
+  "name": "github-rest-2026-03-10",
+  "category": "developer-platform",
+  "spec_url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.2026-03-10.json",
+  "include_paths": [
+    "/rate_limit",
+    "/repos/{owner}/{repo}",
+    "/repos/{owner}/{repo}/issues",
+    "/repos/{owner}/{repo}/commits",
+    "/repos/{owner}/{repo}/releases",
+    "/users/{username}",
+    "/search/repositories"
+  ],
+  "baseline": {
+    "/repos/{owner}/{repo}": { "owner": "github", "repo": "rest-api-description" },
+    "/repos/{owner}/{repo}/issues": { "owner": "github", "repo": "rest-api-description" },
+    "/repos/{owner}/{repo}/commits": { "owner": "github", "repo": "rest-api-description" },
+    "/repos/{owner}/{repo}/releases": { "owner": "github", "repo": "rest-api-description" },
+    "/users/{username}": { "username": "octocat" },
+    "/search/repositories": { "q": "rest-api-description in:name org:github" }
+  },
+  "optional_values": {
+    "/repos/{owner}/{repo}/issues": { "state": "open", "labels": "bug", "sort": "created", "direction": "desc", "since": "2026-01-01T00:00:00Z", "per_page": "5", "page": "1", "creator": "octocat", "milestone": "*", "assignee": "*", "mentioned": "octocat", "type": "*" },
+    "/repos/{owner}/{repo}/commits": { "sha": "main", "path": "README.md", "author": "octocat", "committer": "octocat", "since": "2026-01-01T00:00:00Z", "until": "2026-12-31T00:00:00Z", "per_page": "5", "page": "1" },
+    "/repos/{owner}/{repo}/releases": { "per_page": "5", "page": "1" },
+    "/search/repositories": { "sort": "stars", "order": "desc", "per_page": "5", "page": "1" }
+  },
+  "headers": {
+    "authorization": "Bearer ${GITHUB_TOKEN}",
+    "x-github-api-version": "2026-03-10",
+    "user-agent": "autopia/0.1 (read-only API behavior research; github.com/MaydayTrey/autopia)"
+  },
+  "rate": { "concurrency": 1, "min_interval_ms": 500 },
+  "rate_overrides": { "/search/repositories": { "min_interval_ms": 2500 } },
+  "max_trials": 300
+}

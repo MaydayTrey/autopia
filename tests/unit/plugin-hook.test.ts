@@ -43,6 +43,10 @@ test('matchHosts: URL-shaped mentions only (scheme, or host followed by a path);
   assert.deepEqual(matchHosts('curl http://127.0.0.1:43210/v1/items', INDEX), [], 'a port is part of the host');
   assert.deepEqual(matchHosts('git status', INDEX), []);
   assert.deepEqual(matchHosts('', INDEX), []);
+  // Seen in the wild: the covered host as a path segment of another host is not a call to it.
+  assert.deepEqual(matchHosts('curl -s https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json', INDEX), []);
+  assert.deepEqual(matchHosts('cat descriptions/api.github.com/CHANGELOG.md', INDEX), []);
+  assert.equal(urlPathFor('curl -s https://raw.githubusercontent.com/x/api.github.com/api.github.com.json', 'api.github.com'), null);
 });
 
 test('parseMcpBody + resultText: JSON and SSE bodies; rpc errors and isError results throw', () => {
@@ -120,6 +124,8 @@ test('detectFailure: a 4xx/5xx from a covered host, from a status line or a JSON
   assert.equal(detectFailure('Bash', { command: 'curl -i https://example.com/x' }, 'HTTP/1.1 500', INDEX), null);
   assert.equal(detectFailure('Bash', { command: 'echo api.github.com' }, 'HTTP/1.1 500', INDEX), null);
   assert.equal(detectFailure('Bash', cmd, '', INDEX), null);
+  // Seen in the wild: output that merely contains an "error" string (a grep over a test file) is not an API failure.
+  assert.equal(detectFailure('Bash', { command: 'curl -s https://api.github.com/versions; grep -n error tests/x.test.ts' }, "tests/x.test.ts:54: assert.throws(() => resultText({ result: { isError: true, content: [{ text: '{\"error\":\"no such tool: x\"}' }] } }), /no such tool/);", INDEX), null);
   // WebFetch: the url is the call; the response is text.
   const w = detectFailure('WebFetch', { url: 'https://api.github.com/users/nobody-here-xyz', prompt: 'x' }, 'Request failed: {"message":"Not Found","status":"404"}', INDEX);
   assert.equal(w!.status, 404);

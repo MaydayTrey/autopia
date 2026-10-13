@@ -1,6 +1,6 @@
 {
   "name": "autopia",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Verified HTTP API behavior at the moment it matters: before an agent's first call to a covered endpoint (api.github.com, registry.npmjs.org, pypi.org, api.anthropic.com, ...), and when such a call fails with a 4xx/5xx. Plus MCP tools to dig further.",
   "author": {
     "name": "Trey (MaydayTrey)"

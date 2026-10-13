@@ -126,6 +126,31 @@ REVIEWER ROUND 4 (2026-10-12, an agent's assessment after dogfooding)
   retention UNDER 30 DAYS (true since this commit: pruneCalls deletes
   api_calls older than CALL_LOG_DAYS=30 in run-all --prune-days and in
   'prune'; PRIVACY.md says 30 days); under 18 NO.
+  CONNECTOR SUBMISSION (same evening): tool annotations added (title,
+  readOnlyHint, destructiveHint; request_target is the only non-read-only),
+  tool descriptions rewritten to describe RETURNS only (behavior guidance
+  stays in INSTRUCTIONS) for the "no instructions in descriptions"
+  compliance box; both verified on the live server. Form answers given:
+  no auth, no headers, Read and write, Pegasus Labs / getpegasuslabs.com,
+  three example prompts (docs/distribution.md section 3).
+  GITHUB API VERSIONS (Trey's note): GitHub now has calendar versions
+  2022-11-28 (default) and 2026-03-10 (first with breaking changes, e.g.
+  /rate_limit loses the deprecated "rate" property). The github-rest target
+  always pinned x-github-api-version: 2022-11-28 but its spec_url was the
+  UNVERSIONED description file, which no longer equals the 2022-11-28 one;
+  spec_url now points at api.github.com.2022-11-28.json (new spec hash ->
+  new tool version on the next run; carry-forward applies). NEW target
+  targets/github-rest-2026-03-10.json: same endpoints, header 2026-03-10,
+  spec api.github.com.2026-03-10.json, so sibling differences between API
+  versions become visible. Not run locally (live runs are Trey's call);
+  the nightly run-all picks it up with the Actions GITHUB_TOKEN. Delete the
+  file to opt out.
+  HOOK FALSE POSITIVES seen while dogfooding (fixed in plugin 0.3.3): the
+  pre hook matched api.github.com inside a raw.githubusercontent.com PATH
+  (matcher now rejects a host preceded by "/"); the post hook treated grep
+  output containing '"error":"no such tool"' as an API failure (without a
+  status code the body must now be a short JSON object). Trey: 'claude
+  plugin update autopia@autopia' after push.
 
 >>> STOPPING POINT 2026-10-12, second session (late). READ THIS FIRST. <<<
 

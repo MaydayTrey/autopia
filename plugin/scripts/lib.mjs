@@ -44,7 +44,8 @@ export function matchHosts(text, index) {
     if (!lower.includes(host)) continue;
     const h = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const withScheme = new RegExp(`[a-z][a-z0-9+.-]*://${h}(?![a-z0-9.-])`);
-    const withPath = new RegExp(`(^|[^a-z0-9.@-])${h}/`);
+    // Not preceded by a host/path character: "raw.githubusercontent.com/x/api.github.com/y" is a path segment, not a call.
+    const withPath = new RegExp(`(^|[^a-z0-9.@/-])${h}/`);
     if (withScheme.test(lower) || withPath.test(lower)) out.push({ host, tools: index[host] });
   }
   return out;
@@ -56,7 +57,7 @@ export function matchHosts(text, index) {
  */
 export function urlPathFor(text, host) {
   const h = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = text.match(new RegExp(`(?:[a-z][a-z0-9+.-]*://)?${h}(/[^\\s"'<>)\\]]*)`, 'i'));
+  const m = text.match(new RegExp(`(?:[a-z][a-z0-9+.-]*://|^|[^a-z0-9.@/-])${h}(/[^\\s"'<>)\\]]*)`, 'i'));
   if (!m) return null;
   const p = m[1].replace(/[?#].*$/, '').replace(/\/+$/, '');
   return p || null;
@@ -171,7 +172,9 @@ export function detectFailure(toolName, toolInput, toolResponse, index) {
   }
   const msg = body.match(/"(?:message|error|detail|error_description)"\s*:\s*"([^"]{3,160})"/) ?? body.match(/"error"\s*:\s*\{[^}]*"message"\s*:\s*"([^"]{3,160})"/);
   if (!status && !msg) return null;
-  if (!status && !/error|fail|invalid|not found|denied|unauthori[sz]ed|forbidden|rate limit/i.test(body)) return null;
+  // No status anywhere: the body itself must be an error object from the API (a short JSON object), not
+  // arbitrary output that happens to contain the word "error" (grep over a test file, a log, a diff).
+  if (!status && !(/^\s*\{/.test(body) && body.length < 4000 && /error|fail|invalid|not found|denied|unauthori[sz]ed|forbidden|rate limit/i.test(body))) return null;
   return { host: match.host, tools: match.tools, path: urlPathFor(cmd, match.host), status: status ?? 400, message: msg ? msg[1] : null };
 }
 
