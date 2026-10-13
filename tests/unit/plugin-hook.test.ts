@@ -24,6 +24,10 @@ test('candidateText: Bash command and WebFetch url are scanned; other tools and 
   assert.equal(candidateText('Bash', { command: 'curl https://api.github.com/x' }), 'curl https://api.github.com/x');
   assert.equal(candidateText('WebFetch', { url: 'https://pypi.org/pypi/requests/json', prompt: 'x' }), 'https://pypi.org/pypi/requests/json');
   assert.equal(candidateText('Read', { file_path: 'api.github.com' }), null);
+  // git commands are never API calls, even when the message or diff mentions a covered URL.
+  assert.equal(candidateText('Bash', { command: 'git commit -m "matcher: raw.githubusercontent.com/x/api.github.com/y is a path"' }), null);
+  assert.equal(candidateText('Bash', { command: 'cd "C:/repo" && git log -p -- api.github.com/notes.md' }), null);
+  assert.equal(candidateText('Bash', { command: 'gitleaks detect; curl https://api.github.com/x' }), 'gitleaks detect; curl https://api.github.com/x', 'only the git command itself is skipped');
   assert.equal(candidateText('Bash', null), null);
   assert.equal(candidateText('Bash', { command: 42 }), null);
 });

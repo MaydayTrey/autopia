@@ -9,7 +9,12 @@
 /** The text to scan for API hosts, per tool. Null when the tool is not one we watch. */
 export function candidateText(toolName, toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return null;
-  if (toolName === 'Bash') return typeof toolInput.command === 'string' ? toolInput.command : null;
+  if (toolName === 'Bash') {
+    if (typeof toolInput.command !== 'string') return null;
+    // A git command never calls these APIs; a commit message or diff that mentions a URL is prose.
+    if (/^\s*(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*)?git\s/.test(toolInput.command)) return null;
+    return toolInput.command;
+  }
   if (toolName === 'WebFetch') return typeof toolInput.url === 'string' ? toolInput.url : null;
   return null;
 }
