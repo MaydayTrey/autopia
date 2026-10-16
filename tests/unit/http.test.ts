@@ -68,6 +68,28 @@ test('execute: timeout -> transport error after retries, status null', async () 
   assert.equal(out.signature.bodyKind, 'none');
 });
 
+test('execute: a body that times out after the headers is a timed-out trial, not a thrown error', async () => {
+  let n = 0;
+  const out = await execute(base, {
+    fetchImpl: async () => {
+      n++;
+      const body = new ReadableStream({
+        start(c) {
+          const e = new Error('The operation was aborted due to timeout');
+          e.name = 'TimeoutError';
+          c.error(e);
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    sleep: noSleep,
+    retries: 1,
+  });
+  assert.equal(n, 2);
+  assert.equal(out.status, null);
+  assert.equal(out.transportError, 'timeout');
+});
+
 test('execute: HEAD does not read a body', async () => {
   const out = await execute({ ...base, method: 'HEAD' }, { fetchImpl: async () => new Response(null, { status: 200, headers: { 'content-type': 'application/json' } }), sleep: noSleep });
   assert.equal(out.status, 200);

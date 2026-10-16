@@ -64,6 +64,28 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
   const url = buildUrl(input);
   let rateLimited = false;
 
+  /** No (complete) response: null means back off and retry, otherwise the outcome to record. */
+  const transportFailure = async (e: unknown, started: number, attempt: number): Promise<TrialOutcome | null> => {
+    const latencyMs = Math.round(performance.now() - started);
+    const err = e as Error;
+    const transportError = err.name === 'TimeoutError' || err.name === 'AbortError' ? 'timeout' : `fetch: ${err.message}`;
+    if (attempt < retries && transportError === 'timeout') {
+      await sleep(1000 * 2 ** attempt);
+      return null;
+    }
+    const body = null;
+    return {
+      status: null,
+      headers: {},
+      bodyKind: 'none',
+      body,
+      transportError,
+      latencyMs,
+      rateLimited,
+      signature: signatureOf({ status: null, bodyKind: 'none', body, transportError }),
+    };
+  };
+
   for (let attempt = 0; ; attempt++) {
     const started = performance.now();
     let res: Response;
@@ -79,24 +101,9 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
         redirect: 'manual',
       });
     } catch (e) {
-      const latencyMs = Math.round(performance.now() - started);
-      const err = e as Error;
-      const transportError = err.name === 'TimeoutError' || err.name === 'AbortError' ? 'timeout' : `fetch: ${err.message}`;
-      if (attempt < retries && transportError === 'timeout') {
-        await sleep(1000 * 2 ** attempt);
-        continue;
-      }
-      const body = null;
-      return {
-        status: null,
-        headers: {},
-        bodyKind: 'none',
-        body,
-        transportError,
-        latencyMs,
-        rateLimited,
-        signature: signatureOf({ status: null, bodyKind: 'none', body, transportError }),
-      };
+      const failed = await transportFailure(e, started, attempt);
+      if (failed) return failed;
+      continue;
     }
     const latencyMs = Math.round(performance.now() - started);
     const headers: Record<string, string> = {};
@@ -120,7 +127,16 @@ export async function execute(input: TrialInput, opts: ExecuteOptions = {}): Pro
       continue;
     }
 
-    const text = input.method === 'HEAD' ? '' : await res.text();
+    // The timeout signal also covers the body: headers can arrive in time and the body still stall,
+    // and that must become a timed-out trial like any other, not an exception that aborts the run.
+    let text: string;
+    try {
+      text = input.method === 'HEAD' ? '' : await res.text();
+    } catch (e) {
+      const failed = await transportFailure(e, started, attempt);
+      if (failed) return failed;
+      continue;
+    }
     const { bodyKind, body } = parseBody(text, headers['content-type'] ?? '');
     return {
       status: res.status,
