@@ -294,7 +294,24 @@ sane API, so it needs no doc entry to compare against:
   differ: names). LIVE GitHub (9 req): commits detail adds files, stats;
   issues and releases need no second request; all shared scalars agree.
   Mock detail now {id,name,kind,description}; quirk stale_list.
-  NEXT: S5 sort contract. Search
+  FRESHNESS LABEL BUILT (same day, four-role loop): src/db/freshness.ts
+  (STALE_DAYS=3 nights per PO+customer, coverageDropped = current < half of
+  the previous successful run with >= 10 claims). docs.ts: header "Verified
+  claims: N, each re-executed against the live API on DATE (age) and
+  behaving as stated; ... (run #R)"; brief omits the date unless stale;
+  stale claims get "(last reproduced N days ago, not re-run since)" after
+  evidence; banners "Stale" (nothing re-run for N days; still the best
+  evidence; confirm the line you rely on) and "Coverage dropped" (run #a
+  kept X claims; previous run #b had Y; missing is not disproved).
+  queries.ts: previousRunClaimCount; compactClaim adds verified_days_ago;
+  listTools adds last_verified_at + verified_days_ago. LIVE: github fresh;
+  binance-spot-public "6 days ago" (run #33 2026-10-11 was its last run
+  that stored claims: its nightly runs are not producing; INVESTIGATE);
+  open-meteo-forecast gets the Coverage-dropped banner (5 vs 108).
+  NEXT (PO): nightly health check flagging tools whose claim count dropped
+  by more than half or whose last claim-producing run is > 3 days old
+  (same two signals, surfaced to the maintainer, e.g. in run-all output and
+  a GitHub Actions failure). Then S5 sort contract. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

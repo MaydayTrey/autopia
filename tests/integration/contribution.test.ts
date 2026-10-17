@@ -112,7 +112,7 @@ test('3+4: importing into the server database creates a contributor-tier tool wi
   const md = (await renderToolDocs(db, 'keyed-items'))!;
   assert.match(md, /Trust tier: contributor-verified/);
   assert.match(md, /contributor:ak_test01 on \d{4}-\d{2}-\d{2}/);
-  assert.match(md, /NOT been re-verified since/);
+  assert.match(md, /NOT been re-run here since/);
   assert.match(md, /no request inputs or response bodies were uploaded/);
 
   // a second upload of the same bundle adds a run, not a second version

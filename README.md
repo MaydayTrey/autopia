@@ -142,6 +142,17 @@ second request is needed. Disable with `scenarios.filters: false` / `scenarios.l
 Next scenarios: sort contract, encoding and boundaries. All read-only, none needing an account;
 the write battery comes after.
 
+## Freshness
+
+Every claim records when its evidence last reproduced. A full sheet says on which date its
+claims were last re-executed against the live API; a claim not re-run in the last 3 nights says
+so after its evidence ids; a sheet nobody has re-run for 3 nights carries a **Stale** banner; a
+run that kept fewer than half the previous successful run's claims carries a **Coverage dropped**
+banner, because missing is not disproved. The brief sheet mentions age only when something is
+stale. `list_tools` rows carry `last_verified_at` / `verified_days_ago`; `search_claims` and
+`get_tool_knowledge` records carry `verified_days_ago`. Ages are computed when a sheet is
+rendered, so claim statements, which are diffed nightly, never change.
+
 ## Quick start
 
 ```bash

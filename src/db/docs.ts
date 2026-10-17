@@ -12,7 +12,8 @@
  * Every line ends with the trial ids that back it.
  */
 import type { Db } from './client.js';
-import { canonicalTool, listTools, matchEndpoint, toolKnowledge, type ClaimView } from './queries.js';
+import { ageDays, ageText, coverageDropped, STALE_DAYS } from './freshness.js';
+import { canonicalTool, listTools, matchEndpoint, previousRunClaimCount, toolKnowledge, type ClaimView } from './queries.js';
 import { memo } from './cache.js';
 
 /** Inline evidence: the first few trial ids, then a count. 38 ids on one line is noise at the moment of use; get_tool_knowledge has them all. */
@@ -22,7 +23,13 @@ export function formatEvidence(c: ClaimView | ClaimView[], max = EVIDENCE_INLINE
   const shown = ids.slice(0, max);
   return `[${shown.join(', ')}${ids.length > max ? `, +${ids.length - max} more` : ''}]`;
 }
-const ev = formatEvidence;
+/** " (last verified N days ago)" when a claim (or the oldest of a group) is older than STALE_DAYS; empty otherwise, so fresh sheets pay nothing. */
+export function staleNote(c: ClaimView | ClaimView[]): string {
+  const list = Array.isArray(c) ? c : [c];
+  const ages = list.map((x) => x.stale_days ?? 0).filter((n) => n > 0);
+  return ages.length ? ` (last reproduced ${ageText(Math.max(...ages))}, not re-run since)` : '';
+}
+const ev = (c: ClaimView | ClaimView[], max?: number) => formatEvidence(c, max) + staleNote(c);
 
 /** Human label for a validation probe, from the rule name in the claim key. */
 const PROBE_LABEL: Record<string, string> = {
@@ -252,9 +259,20 @@ function endpointIndex(tool: string, claims: ClaimView[], endpoints: string[], e
  *   descend to them by name instead of receiving them all. A path that matches nothing yields the
  *   unscoped sheet plus the index and a note.
  */
-export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean; path?: string | null } = {}): Promise<string | null> {
+export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean; path?: string | null; now?: Date } = {}): Promise<string | null> {
   const k = await toolKnowledge(db, toolName, versionId ?? null, false);
   if (!k) return null;
+  // Freshness: mark claims whose evidence has not reproduced for more than STALE_DAYS.
+  const now = opts.now ?? new Date();
+  for (const c of k.claims) {
+    const age = ageDays(c.verified_at, now);
+    c.stale_days = age > STALE_DAYS ? age : undefined; // explicit, so a reused object never keeps an older render's flag
+  }
+  const newest = k.claims.length ? new Date(Math.max(...k.claims.map((c) => new Date(c.verified_at).getTime()))) : null;
+  const newestAge = newest ? ageDays(newest, now) : null;
+  const newestDate = newest ? newest.toISOString().slice(0, 10) : null;
+  const sheetStale = newestAge !== null && newestAge > STALE_DAYS;
+  const staleBanner = `> **Stale:** nothing on this sheet has been re-run against the live API for ${newestAge} days (last ${newestDate}). It is still the best available evidence; confirm the specific line you rely on with a live call.`;
   const lines: string[] = [];
   const allClaims = k.claims;
   const allEndpoints = [...new Set(allClaims.map((c) => c.endpoint))].sort();
@@ -269,6 +287,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
       // A call to an uncovered path on a covered host: the brief answer is "not covered" plus the
       // directory, not the whole tool. (A whole-tool brief for api.github.com/.../actions/runs
       // cost 4KB of endpoints the caller was not using.)
+      if (sheetStale) lines.push('', staleBanner);
       lines.push('', `No covered endpoint matches the path ${opts.path}. Nothing below describes that path; the compendium has not probed it. These are the endpoints it has:`);
       lines.push(...endpointIndex(k.tool, allClaims, allEndpoints, null, true));
       lines.push(...(await coverageFooter(db, k.tool, allEndpoints)));
@@ -282,17 +301,26 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
     return lines.join('\n');
   }
   lines.push('', `Spec: ${k.version.spec_url}`, `Version: ${k.version.label ?? 'unlabeled'} (spec hash ${k.version.spec_hash.slice(0, 12)}), discovered ${new Date(k.version.discovered_at).toISOString().slice(0, 10)}`);
+  const staleCount = claims.filter((c) => c.stale_days).length;
+  const staleSentence = staleCount ? ` ${staleCount} claim(s) were not re-run in the last ${STALE_DAYS} nights and say so after their evidence.` : '';
+  // The brief sheet (injected before every call) states the date only when it matters; the full sheet always does.
+  const when = newestDate ? (opts.brief && !sheetStale ? '' : ` on ${newestDate} (${ageText(newestAge!)})`) : '';
+  if (sheetStale) lines.push('', staleBanner);
+  if (k.run_id) {
+    const prev = await previousRunClaimCount(db, k.version.id, k.run_id).catch(() => null);
+    if (prev && coverageDropped(allClaims.length, prev.claims)) lines.push('', `> **Coverage dropped:** run #${k.run_id} kept ${allClaims.length} claims; the previous successful run #${prev.runId} had ${prev.claims}. Most of this sheet is missing, not disproved: the absent behaviors were not re-checked.`);
+  }
   if (k.tier === 'contributor') {
     const who = [...new Set(claims.map((c) => c.verified_by))].join(', ') || 'a contributor';
-    const when = claims.length ? new Date(Math.max(...claims.map((c) => new Date(c.verified_at).getTime()))).toISOString().slice(0, 10) : 'unknown';
+    const whenDate = newestDate ?? 'unknown';
     lines.push(
       '',
-      `> **Trust tier: contributor-verified.** This API needs credentials, so this server could not run it. The claims below were produced and reproduced by ${who} on ${when}, on their machine with their key, and have NOT been re-verified since. Evidence is limited to HTTP status and response shape; no request inputs or response bodies were uploaded.`,
+      `> **Trust tier: contributor-verified.** This API needs credentials, so this server could not run it. The claims below were produced and reproduced by ${who} on ${whenDate}, on their machine with their key, and have NOT been re-run here since. Evidence is limited to HTTP status and response shape; no request inputs or response bodies were uploaded.`,
       '',
-      `Claims: ${claims.length} from run #${k.run_id ?? '-'}. Numbers in brackets are the uploaded evidence trial ids.`,
+      `Claims: ${claims.length}, last reproduced by the contributor${newestDate ? ` on ${newestDate} (${ageText(newestAge!)})` : ''}. Numbers in brackets are the uploaded evidence trial ids (run #${k.run_id ?? '-'}).${staleSentence}`,
     );
   } else {
-    lines.push(`Verified claims: ${claims.length} from run #${k.run_id ?? '-'}. Every claim below reproduced when re-run; numbers in brackets are the trial ids that back it.`);
+    lines.push(`Verified claims: ${claims.length}, each re-executed against the live API${when} and behaving as stated; numbers in brackets are the trial ids (run #${k.run_id ?? '-'}).${staleSentence}`);
   }
 
   const spec = claims.filter((c) => c.divergence_type === 'spec');

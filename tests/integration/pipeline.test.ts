@@ -245,6 +245,30 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
   }
 });
 
+test('freshness: a fresh sheet says so in its header; a sheet rendered weeks later marks stale claims and carries a banner', async () => {
+  const { renderToolDocs } = await import('../../src/db/docs.js');
+  const fresh = (await renderToolDocs(db, 'mock-items', null, { brief: false }))!;
+  assert.match(fresh, /Verified claims: \d+, each re-executed against the live API on \d{4}-\d{2}-\d{2} \(today\) and behaving as stated; numbers in brackets are the trial ids \(run #\d+\)\./);
+  assert.ok(!/Stale:/.test(fresh) && !/not re-run since\)/.test(fresh), 'nothing is stale today');
+  const briefFresh = (await renderToolDocs(db, 'mock-items', null, { brief: true }))!;
+  assert.match(briefFresh, /Verified claims: \d+, each re-executed against the live API and behaving as stated;/, 'the brief sheet spends no words on a fresh date');
+  const later = (await renderToolDocs(db, 'mock-items', null, { brief: false, now: new Date(Date.now() + 30 * 86_400_000) }))!;
+  assert.match(later, /> \*\*Stale:\*\* nothing on this sheet has been re-run against the live API for 30 days \(last \d{4}-\d{2}-\d{2}\)\. It is still the best available evidence/);
+  assert.match(later, /re-executed against the live API on \d{4}-\d{2}-\d{2} \(30 days ago\) and behaving as stated; numbers in brackets are the trial ids \(run #\d+\)\. \d+ claim\(s\) were not re-run in the last 3 nights/);
+  assert.match(later, /\[#\d+(, #\d+)*\] \(last reproduced 30 days ago, not re-run since\)/, 'each stale claim says so after its evidence');
+  const brief = (await renderToolDocs(db, 'mock-items', null, { brief: true, now: new Date(Date.now() + 30 * 86_400_000) }))!;
+  assert.match(brief, /Stale:/, 'the brief sheet carries the banner too');
+  assert.match(brief, /\(30 days ago\)/, 'and, once stale, the date');
+  // The catalogue and compact records expose the age as numbers.
+  const tools = await queries.listTools(db);
+  const mine = tools.find((t) => t.name === 'mock-items')!;
+  assert.equal(mine.verified_days_ago, 0);
+  assert.ok(typeof mine.last_verified_at === 'string');
+  const k = (await queries.toolKnowledge(db, 'mock-items', null, false))!;
+  assert.equal(queries.compactClaim(k.claims[0]).verified_days_ago, 0);
+  assert.equal(queries.compactClaim(k.claims[0], new Date(Date.now() + 3 * 86_400_000)).verified_days_ago, 3);
+});
+
 test('scenario: a list whose items carry stale values is named field by field', async () => {
   const { validateTarget } = await import('../../src/worker/target.js');
   const stale = await startMockApi('v1', { stale_list: true });

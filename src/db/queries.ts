@@ -4,11 +4,12 @@
  * Every claim view carries its EVIDENCE (the trials it cites) so a consumer
  * can see why to trust it.
  */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { schema } from './client.js';
 import type { Claim, TestRun, Tool, ToolVersion, Trial } from './schema.js';
 import { diffClaimSets, latestClaimsForVersion, type DiffEntry } from '../worker/diff.js';
+import { ageDays } from './freshness.js';
 import { siblingKey } from '../worker/claims.js';
 import type { SiblingIndex } from '../worker/crossref.js';
 
@@ -40,6 +41,8 @@ export interface ClaimView {
   verified: boolean;
   verified_by: string; // 'server' | 'contributor:<key prefix>'
   verified_at: Date;
+  /** Set by the renderer when the claim is older than STALE_DAYS: how many days since its evidence last reproduced. */
+  stale_days?: number;
   evidence: TrialRef[];
 }
 
@@ -81,6 +84,9 @@ export async function listTools(db: Db) {
       latest_version_id: latest?.id ?? null,
       latest_version_label: latest?.versionLabel ?? null,
       verified_claims: cur?.claims.length ?? 0,
+      /** When any of the current claims last reproduced, and how many days ago; null when there are none. */
+      last_verified_at: cur?.claims.length ? new Date(Math.max(...cur.claims.map((c) => new Date(c.verifiedAt).getTime()))).toISOString() : null,
+      verified_days_ago: cur?.claims.length ? ageDays(new Date(Math.max(...cur.claims.map((c) => new Date(c.verifiedAt).getTime())))) : null,
       divergences: cur?.claims.filter((c) => c.divergenceType).length ?? 0,
       /** The API hosts this tool's trials hit: match the URL you are about to call against these. */
       hosts: cur?.runId ? await runHosts(db, cur.runId) : [],
@@ -227,6 +233,21 @@ export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
   return null;
 }
 
+/** Claim count of the newest FINISHED run before `beforeRunId` on this version that stored any claims; null when there is none. */
+export async function previousRunClaimCount(db: Db, toolVersionId: number, beforeRunId: number): Promise<{ runId: number; claims: number } | null> {
+  const runs = await db
+    .select({ id: schema.testRuns.id })
+    .from(schema.testRuns)
+    .where(and(eq(schema.testRuns.toolVersionId, toolVersionId), eq(schema.testRuns.status, 'finished'), lt(schema.testRuns.id, beforeRunId)))
+    .orderBy(desc(schema.testRuns.id))
+    .limit(5);
+  for (const r of runs) {
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.claims).where(eq(schema.claims.testRunId, r.id));
+    if (Number(n) > 0) return { runId: r.id, claims: Number(n) };
+  }
+  return null;
+}
+
 export async function listVersions(db: Db, toolId: number): Promise<ToolVersion[]> {
   return db.select().from(schema.toolVersions).where(eq(schema.toolVersions.toolId, toolId)).orderBy(desc(schema.toolVersions.id));
 }
@@ -290,10 +311,10 @@ export function compactTrial(t: TrialRef): CompactTrialRef {
   return { id: t.id, probe: t.mutation_id, param: t.param, status: t.status, request: line.length > 240 ? line.slice(0, 237) + '...' : line };
 }
 
-export type CompactClaimView = Omit<ClaimView, 'evidence'> & { evidence: CompactTrialRef[] };
+export type CompactClaimView = Omit<ClaimView, 'evidence'> & { evidence: CompactTrialRef[]; verified_days_ago: number };
 
-export function compactClaim(c: ClaimView): CompactClaimView {
-  return { ...c, evidence: c.evidence.map(compactTrial) };
+export function compactClaim(c: ClaimView, now: Date = new Date()): CompactClaimView {
+  return { ...c, evidence: c.evidence.map(compactTrial), verified_days_ago: ageDays(c.verified_at, now) };
 }
 
 /** Closest existing tool names, for "no such tool" errors. */

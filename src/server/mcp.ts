@@ -26,6 +26,7 @@ import { closeDb, getDb } from '../db/client.js';
 import { compactClaim, listTools, listVersions, pathOf, resolveToolRef, searchClaims, suggestTools, toolKnowledge, versionDiff, type ClaimView } from '../db/queries.js';
 import { renderToolDocs } from '../db/docs.js';
 import { memo } from '../db/cache.js';
+import { ageDays } from '../db/freshness.js';
 import { callerHash, logCall, verifyKey } from '../db/keys.js';
 import { getRequest, submitRequest } from '../db/requests.js';
 import { importContribution } from '../db/contributions.js';
@@ -74,7 +75,7 @@ SKIP: hosts not listed by list_tools (request_target can queue a public read-onl
 
 SCOPE: pass the full URL (or path) you are about to call to get_tool_docs to receive ONLY that endpoint plus a one-line index of the others. Sheets are brief by default (what would change the request you send); full:true adds per-parameter validation, response shapes and all evidence ids. Descend to another endpoint by its path instead of reading the whole tool.
 
-TRUST: 'server' tier claims were re-verified by this server on the run shown in the sheet. 'contributor-verified' claims were run by a keyed user and not re-run since; the date says how stale they are. Nothing here is inferred from documentation; every line cites trials.`;
+TRUST: 'server' tier claims were re-verified by this server on the run shown in the sheet. 'contributor-verified' claims were run by a keyed user and not re-run since. Every full sheet says on which date its claims were last re-executed; a claim not re-run in the last 3 nights says so after its evidence, a sheet nobody has re-run for 3 nights carries a Stale banner, and a run that kept fewer than half the previous run's claims carries a Coverage-dropped banner (missing is not disproved). Records from search_claims and get_tool_knowledge carry verified_days_ago. Nothing here is inferred from documentation; every line cites trials.`;
 
 export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false, identity: 'stdio' }): McpServer {
   const server = new McpServer({ name: 'autopia', version: '0.1.0' }, { instructions: INSTRUCTIONS });
@@ -121,7 +122,7 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   const TOOL_ARG = z.string().describe('tool name (e.g. github-rest), or the host / URL you are about to call (e.g. api.github.com)');
   /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. Anonymous callers never get previews. */
   const anonCaller = ctx.identity === 'anon';
-  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose && !anonCaller ? claims : claims.map(compactClaim));
+  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose && !anonCaller ? claims.map((c) => ({ ...c, verified_days_ago: ageDays(c.verified_at) })) : claims.map((c) => compactClaim(c)));
   /** Anonymous page sizes are capped so one call cannot pull the whole table. */
   const capLimit = (limit: number | undefined, dflt: number, anonMax: number) => (anonCaller ? Math.min(limit ?? dflt, anonMax) : (limit ?? dflt));
 
