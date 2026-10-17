@@ -211,7 +211,13 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
       case 'pagination_beyond': {
         const v = queryValue(t, pn);
         if (rejected(t)) out.push(claim(t.mutationType, ep, pn, 'pagination', 'rejects', `Pagination parameter "${pn}" = ${v} is rejected with ${desc}.`, [base, t]));
-        else if (ok(t)) out.push(claim(t.mutationType, ep, pn, 'pagination', 'accepts', `Pagination parameter "${pn}" = ${v} is accepted (${status(t)}).`, [base, t]));
+        else if (ok(t)) {
+          // What an accepted value actually does is the fact a caller needs: nothing (same page as the comparison request), an empty list, or a different count.
+          const n = listLength(t);
+          const b = listLength(base);
+          const effect = n === null || b === null ? '' : n === 0 ? ' and returns an empty list' : n === b ? ' and returns the same number of items as the comparison request: the value has no visible effect (ignored, or clamped to the default)' : ` and returns ${n} item(s) where the comparison request returned ${b}`;
+          out.push(claim(t.mutationType, ep, pn, 'pagination', 'accepts', `Pagination parameter "${pn}" = ${v} is accepted (${status(t)})${effect}.`, [base, t]));
+        }
         break;
       }
       case 'wrong_content_type': {
@@ -282,9 +288,14 @@ function endpointRules(ep: string, idx: Index, params: Map<string, ParamSpec>, a
     if (share >= 0.8) {
       const shape = JSON.parse(bigKey).shape;
       const evidence = big.slice(0, 8);
-      out.push(
-        claim('error_shape', ep, null, 'error_behavior', 'observes', `Validation errors consistently return HTTP ${big[0].statusCode} with ${describeBodyShape(shape)} (${big.length} of ${errs.length} rejected probes).`, evidence, { confidence: Math.min(0.95, 0.6 + share * 0.35) }),
-      );
+      const st = big[0].statusCode;
+      // A 404 for a probed path value (an owner, id or name that does not exist) is "not found", not a
+      // validation error; the actionable fact is that a typo and a missing resource look the same.
+      const wording =
+        st === 404
+          ? `Rejected probes return HTTP 404 with ${describeBodyShape(shape)} (${big.length} of ${errs.length}): a value the API cannot find (an unknown owner, id or name) is answered as "not found", not as a validation error, so a typo and a missing resource look the same.`
+          : `Validation errors consistently return HTTP ${st} with ${describeBodyShape(shape)} (${big.length} of ${errs.length} rejected probes).`;
+      out.push(claim('error_shape', ep, null, 'error_behavior', 'observes', wording, evidence, { confidence: Math.min(0.95, 0.6 + share * 0.35) }));
     } else {
       const statuses = [...new Set(errs.map((t) => t.statusCode))].sort().join(', ');
       out.push(claim('error_shape', ep, null, 'error_behavior', 'observes', `Validation errors do not share one shape: ${groups.size} distinct status/shape combinations across ${errs.length} rejected probes (statuses ${statuses}).`, errs.slice(0, 8), { confidence: 0.6 }));

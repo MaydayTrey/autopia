@@ -157,7 +157,8 @@ test('mcp: get_tool_knowledge is paginated with compact evidence; get_divergence
   assert.equal(k.claims.length, 5);
   assert.ok(k.counts_by_kind.error_behavior >= 1);
   for (const c of k.claims as { verified: boolean; evidence: Record<string, unknown>[] }[]) {
-    assert.ok(c.verified && c.evidence.length >= 1);
+    assert.ok(c.verified && c.evidence.length >= 1 && c.evidence.length <= 3, 'compact records cite at most 3 trials');
+    assert.ok(typeof c.evidence_total === 'number' && c.evidence_total >= c.evidence.length);
     for (const e of c.evidence) {
       assert.deepEqual(Object.keys(e).sort(), ['id', 'param', 'probe', 'request', 'status'], 'compact evidence: no bodies, no header maps');
       assert.match(String(e.request), /^GET http/);

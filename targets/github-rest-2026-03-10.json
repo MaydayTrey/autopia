@@ -17,7 +17,7 @@
     "/repos/{owner}/{repo}/commits": { "owner": "github", "repo": "rest-api-description" },
     "/repos/{owner}/{repo}/releases": { "owner": "github", "repo": "rest-api-description" },
     "/users/{username}": { "username": "octocat" },
-    "/search/repositories": { "q": "rest-api-description in:name org:github" }
+    "/search/repositories": { "q": "org:github stars:>1000" }
   },
   "optional_values": {
     "/repos/{owner}/{repo}/issues": { "state": "open", "labels": "bug", "sort": "created", "direction": "desc", "since": "2026-01-01T00:00:00Z", "per_page": "5", "page": "1", "creator": "octocat", "milestone": "*", "assignee": "*", "mentioned": "octocat", "type": "*" },

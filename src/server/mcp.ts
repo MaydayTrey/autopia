@@ -122,7 +122,15 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
   const TOOL_ARG = z.string().describe('tool name (e.g. github-rest), or the host / URL you are about to call (e.g. api.github.com)');
   /** Evidence over MCP is compact (one line per trial) unless verbose=true asks for response previews. Anonymous callers never get previews. */
   const anonCaller = ctx.identity === 'anon';
-  const shape = (claims: ClaimView[], verbose: boolean | undefined) => (verbose && !anonCaller ? claims.map((c) => ({ ...c, verified_days_ago: ageDays(c.verified_at) })) : claims.map((c) => compactClaim(c)));
+  // Compact records cite at most 3 trials (evidence_total says how many back the claim); a 30 KB divergences
+  // answer that repeated eight evidence lines per claim was the reviewer's complaint. verbose=true keeps them all.
+  const shape = (claims: ClaimView[], verbose: boolean | undefined) =>
+    verbose && !anonCaller
+      ? claims.map((c) => ({ ...c, verified_days_ago: ageDays(c.verified_at) }))
+      : claims.map((c) => {
+          const cc = compactClaim(c);
+          return { ...cc, evidence: cc.evidence.slice(0, 3), evidence_total: cc.evidence.length };
+        });
   /** Anonymous page sizes are capped so one call cannot pull the whole table. */
   const capLimit = (limit: number | undefined, dflt: number, anonMax: number) => (anonCaller ? Math.min(limit ?? dflt, anonMax) : (limit ?? dflt));
 

@@ -169,7 +169,7 @@ test('rules: error bodies that are bare JSON strings are described as such, not 
     jsonString('boundary_long_string:limit', [...q, ['limit', 'x'.repeat(2048)]], 'version not found: xxx'),
   ];
   const byKey = Object.fromEntries(rulesClaims(trials, [itemsEndpoint]).map((c) => [c.claim_key, c]));
-  assert.match(byKey['rule:error_shape:get_v1_items:-'].statement, /HTTP 404 with a bare JSON string body \(3 of 3 rejected probes\)/);
+  assert.match(byKey['rule:error_shape:get_v1_items:-'].statement, /Rejected probes return HTTP 404 with a bare JSON string body \(3 of 3\): a value the API cannot find/);
   assert.equal(describeBodyShape('text'), 'a plain-text body');
   assert.equal(describeBodyShape('empty'), 'an empty body');
   assert.equal(describeBodyShape({ error: 'string' }), 'a body of shape {"error":"string"}');
@@ -271,4 +271,29 @@ test('rules: a date probe answered with 200 is classified by what came back: imp
     [ep],
   ).find((c) => c.claim_key === 'rule:datetime_invalid:get_v1_items:since')!;
   assert.equal(plain.statement, 'Date parameter "since" accepts a non-date string ("not-a-date") (HTTP 200).');
+});
+
+test('rules: a 404-shaped rejection is reported as not-found, not as a validation error; an accepted pagination value says what it did', async () => {
+  const { rulesClaims } = await import('../../src/worker/aggregate/rules.js');
+  const { fakeTrial, itemsEndpoint, resetIds } = await import('../helpers.js');
+  resetIds(900);
+  const nf = { message: 'Not Found', status: '404' };
+  const list = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i + 1 }));
+  const trials = [
+    fakeTrial({ mutationId: 'baseline', status: 200, body: list(30) }),
+    fakeTrial({ mutationId: 'wrong_type:id', status: 404, body: nf, param: 'id' }),
+    fakeTrial({ mutationId: 'null_value:id', status: 404, body: nf, param: 'id' }),
+    fakeTrial({ mutationId: 'empty_value:id', status: 404, body: nf, param: 'id' }),
+    fakeTrial({ mutationId: 'optional_present:limit', status: 200, body: list(30), param: 'limit', query: [['q', 'hello'], ['limit', '5']] }),
+    fakeTrial({ mutationId: 'pagination_huge:limit', status: 200, body: list(30), param: 'limit', query: [['q', 'hello'], ['limit', '100000']] }),
+    fakeTrial({ mutationId: 'pagination_beyond:limit', status: 200, body: [], param: 'limit', query: [['q', 'hello'], ['limit', '999999999']] }),
+  ];
+  for (const t of trials) (t.response as { arrayLengths?: Record<string, number> }).arrayLengths = { '': Array.isArray(t.response && (t.response as { body?: unknown }).body) ? ((t.response as { body: unknown[] }).body).length : 0 };
+  const out = rulesClaims(trials, [itemsEndpoint]);
+  const shape = out.find((c) => c.claim_key === 'rule:error_shape:get_v1_items:-')!;
+  assert.match(shape.statement, /^Rejected probes return HTTP 404 with .* a value the API cannot find \(an unknown owner, id or name\) is answered as "not found", not as a validation error/);
+  const huge = out.find((c) => c.claim_key === 'rule:pagination_huge:get_v1_items:limit')!;
+  assert.match(huge.statement, /is accepted \(HTTP 200\) and returns the same number of items as the comparison request: the value has no visible effect/);
+  const beyond = out.find((c) => c.claim_key === 'rule:pagination_beyond:get_v1_items:limit')!;
+  assert.match(beyond.statement, /is accepted \(HTTP 200\) and returns an empty list\./);
 });
