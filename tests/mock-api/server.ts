@@ -16,6 +16,7 @@
  * v2 changes: q enforced (400), limit "abc" rejected (400), limit 101 rejected
  * (400), unknown params rejected (400). Everything else identical.
  */
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -65,7 +66,7 @@ function spec(serverUrl: string, version: string) {
 
 const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'api_key']);
 
-function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string, quirks: MockQuirks = {}) {
+function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string, quirks: MockQuirks = {}, state: MockState = { counted: 0 }) {
   const u = new URL(req.url ?? '/', 'http://x');
   if (u.pathname === '/openapi.json') {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -76,9 +77,25 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: { code, message } }));
   };
+  // Every successful response carries an ETag (hash of the body), a fixed Last-Modified, and a
+  // GitHub-style rate-limit family (limit 1000, fixed window, epoch-seconds reset). A matching
+  // If-None-Match / If-Modified-Since yields 304; a 304 is free unless the cost_304 quirk is set.
+  const LAST_MODIFIED = 'Wed, 01 Oct 2026 00:00:00 GMT';
+  const rateHeaders = () => ({ 'x-ratelimit-limit': '1000', 'x-ratelimit-remaining': String(1000 - state.counted), 'x-ratelimit-reset': '1800000000', 'x-ratelimit-used': String(state.counted) });
   const ok = (body: unknown, headers: Record<string, string> = {}) => {
-    res.writeHead(200, { 'content-type': 'application/json', ...headers });
-    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body));
+    const text = JSON.stringify(body);
+    const etag = `"${createHash('sha256').update(text).digest('hex').slice(0, 16)}"`;
+    const cond = !quirks.no_etag && (req.headers['if-none-match'] === etag || req.headers['if-modified-since'] === LAST_MODIFIED);
+    const validators = quirks.no_etag ? {} : { etag, 'last-modified': LAST_MODIFIED };
+    if (cond) {
+      if (quirks.cost_304) state.counted++;
+      res.writeHead(304, { ...validators, ...rateHeaders(), ...headers });
+      res.end();
+      return;
+    }
+    state.counted++;
+    res.writeHead(200, { 'content-type': 'application/json', ...validators, ...rateHeaders(), ...headers });
+    res.end(req.method === 'HEAD' ? undefined : text);
   };
 
   if (u.pathname === '/v1/items') {
@@ -134,17 +151,25 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
   res.end('not found');
 }
 
-/** Planted scenario quirks: page_overlap makes every page after the first start one item early (the last item repeats). */
+/** Planted scenario quirks: page_overlap makes every page after the first start one item early (the last item repeats); cost_304 makes conditional 304s count against the rate limit; no_etag drops ETag and Last-Modified. */
 export interface MockQuirks {
   page_overlap?: boolean;
+  cost_304?: boolean;
+  no_etag?: boolean;
+}
+
+/** Per-server state: the rate-limit counter. */
+interface MockState {
+  counted: number;
 }
 
 export async function startMockApi(profile: Profile, quirks: MockQuirks = {}): Promise<MockApi> {
   const requests: MockApi['requests'] = [];
   let specText = '';
+  const state: MockState = { counted: 0 };
   const server = http.createServer((req, res) => {
     requests.push({ method: req.method ?? '', url: req.url ?? '' });
-    handle(profile, req, res, () => specText, quirks);
+    handle(profile, req, res, () => specText, quirks, state);
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();

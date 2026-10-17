@@ -65,8 +65,8 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   // the second endpoint (path param) was exercised too
   assert.ok(stored.some((c) => c.endpoint === 'GET /v1/items/{id}'));
   // Scenario battery: pagination completeness ran on the list endpoint; its claims are verified like any other.
-  assert.equal(s.scenarios.endpoints.length, 1, JSON.stringify(s.scenarios));
-  assert.ok(s.scenarios.requests >= 6 && s.scenarios.requests <= 8, `scenario requests ${s.scenarios.requests}`);
+  assert.equal(s.scenarios.endpoints.length, 2, JSON.stringify(s.scenarios)); // pagination on the list, conditional on both
+  assert.ok(s.scenarios.requests >= 14 && s.scenarios.requests <= 16, `scenario requests ${s.scenarios.requests}`);
   const scen = stored.filter((c) => c.source === 'scenario');
   const statements = JSON.stringify(scen.map((c) => [c.claimKey, c.statement]));
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once: 7 items, 7 distinct ids, on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
@@ -74,7 +74,15 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_stable:get_v1_items:-' && /same order/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_page_size:get_v1_items:-' && /limit=5 is not what comes back: pages 1\.\.2 held 3 items/.test(c.statement)), 'the planted clamp shows up as a page-size finding: ' + statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_end:get_v1_items:-' && /ends at page 3/.test(c.statement)), statements);
-  assert.ok(scen.every((c) => c.kind === 'pagination' && c.verified && c.evidenceTrialIds.length >= 1));
+  assert.ok(scen.filter((c) => /pagination_/.test(c.claimKey)).every((c) => c.kind === 'pagination'));
+  assert.ok(scen.every((c) => c.verified && c.evidenceTrialIds.length >= 1));
+  // Conditional requests + rate-limit accounting, on both endpoints.
+  for (const ep of ['get_v1_items', 'get_v1_items_id']) {
+    assert.ok(scen.some((c) => c.claimKey === `scenario:conditional_etag:${ep}:-` && /honor If-None-Match: re-requesting with the current tag returns HTTP 304/.test(c.statement)), ep + ' ' + statements);
+    assert.ok(scen.some((c) => c.claimKey === `scenario:conditional_cost:${ep}:-` && /does not count against the rate limit/.test(c.statement)), ep + ' ' + statements);
+    assert.ok(scen.some((c) => c.claimKey === `scenario:conditional_last_modified:${ep}:-` && /honor If-Modified-Since/.test(c.statement)), ep + ' ' + statements);
+    assert.ok(scen.some((c) => c.claimKey === `scenario:rate_limit_accounting:${ep}:-` && /decrements x-ratelimit-remaining by exactly 1 with x-ratelimit-reset unchanged \(a fixed window, not a sliding one\)\. x-ratelimit-reset is epoch seconds\./.test(c.statement)), ep + ' ' + statements);
+  }
   // Scenario trials are logged like any other and cited by the claims.
   const scenTrials = await db.select().from(schema.trials).where(eq(schema.trials.testRunId, s.testRunId));
   assert.ok(scenTrials.filter((t) => t.mutationType === 'scenario').length === s.scenarios.requests);
@@ -198,5 +206,33 @@ test('scenario: overlapping pages are reported as duplicates, reproduced by the 
     assert.match(brief, /repeats items across pages/);
   } finally {
     await quirky.close();
+  }
+});
+
+test('scenario: a 304 that costs quota, and an API with no validators at all, are each named', async () => {
+  const { validateTarget } = await import('../../src/worker/target.js');
+  const costly = await startMockApi('v1', { cost_304: true });
+  try {
+    const t = validateTarget({ name: 'mock-costly-304', category: 'test', spec_url: costly.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false } });
+    const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
+    const cost = s.verified.find((c) => c.claimKey === 'scenario:conditional_cost:get_v1_items:-');
+    assert.ok(cost, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
+    assert.match(cost!.statement, /still counts against the rate limit/);
+    assert.equal(s.scenarios.requests, 8, 'pagination off: 4 conditional requests per endpoint');
+  } finally {
+    await costly.close();
+  }
+  const bare = await startMockApi('v1', { no_etag: true });
+  try {
+    const t = validateTarget({ name: 'mock-no-validators', category: 'test', spec_url: bare.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false } });
+    const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
+    const none = s.verified.find((c) => c.claimKey === 'scenario:conditional_none:get_v1_items:-');
+    assert.ok(none, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
+    assert.match(none!.statement, /neither ETag nor Last-Modified/);
+    const acct = s.verified.find((c) => c.claimKey === 'scenario:rate_limit_accounting:get_v1_items:-');
+    assert.match(acct!.statement, /decrements x-ratelimit-remaining by exactly 1/);
+    assert.equal(s.scenarios.requests, 4, 'no ETag: fresh + repeat per endpoint');
+  } finally {
+    await bare.close();
   }
 });

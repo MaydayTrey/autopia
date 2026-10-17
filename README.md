@@ -111,9 +111,25 @@ walk reproduces the invariant itself. Budget: two walks of 4 pages of 5 (`scenar
 { pages, page_size }` in the target, or `false` to skip), ~8 requests per endpoint. The sheet
 shows these under **How it behaves in use**; the brief sheet carries them as pagination watch-outs.
 
-Next scenarios, in order: conditional requests (ETag / 304 and whether they cost rate limit),
-rate-limit truth, filter composition, list vs detail consistency, sort contract, encoding and
-boundaries. All read-only, none needing an account; the write battery comes after.
+Scenarios 3 and 6, **conditional requests and rate-limit accounting**, run on every endpoint
+with a working baseline, at most four requests each: a fresh GET, the same GET with
+`If-None-Match` set to the ETag it returned, the same with a stale tag, and (when Last-Modified
+was sent) one with `If-Modified-Since`. From that sequence:
+
+- whether `If-None-Match` yields 304 with an empty body, and that a stale tag still yields 200
+  (so the 304 was really conditional), or that the ETag is ignored, or that there are no
+  validators at all and every poll is a full request;
+- whether a 304 **costs a request** against the rate limit or is free;
+- whether each full request decrements the remaining counter by exactly one with the reset
+  unchanged (a fixed window), what format the reset value is in, and what the limit is.
+
+Statements name no volatile numbers, so they stay stable across nightly runs. Disable with
+`scenarios.conditional: false` in the target. On GitHub this found that `/rate_limit` is not
+counted, that search has its own pool of 30 and no validators, and that every other endpoint
+honors ETags with free 304s.
+
+Next scenarios, in order: filter composition, list vs detail consistency, sort contract,
+encoding and boundaries. All read-only, none needing an account; the write battery comes after.
 
 ## Quick start
 

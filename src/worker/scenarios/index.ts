@@ -14,6 +14,7 @@ import type { ExerciseOptions } from '../exercise.js';
 import { log } from '../log.js';
 import { endpointLabel, type EndpointSpec } from '../spec.js';
 import type { TargetConfig } from '../target.js';
+import { runConditionalScenario } from './conditional.js';
 import { paginationConfig, pagingParams, runPaginationScenario, SCENARIO_VERSION } from './pagination.js';
 
 export { SCENARIO_VERSION };
@@ -41,31 +42,55 @@ export function listEndpoints(endpoints: EndpointSpec[], trials: Trial[]): Endpo
   });
 }
 
+/** Endpoints whose baseline succeeded (2xx), whatever shape it returned. */
+export function workingEndpoints(endpoints: EndpointSpec[], trials: Trial[]): EndpointSpec[] {
+  return endpoints.filter((ep) => {
+    const b = trials.find((t) => t.endpoint === endpointLabel(ep) && t.mutationId === 'baseline');
+    return !!b && b.statusCode !== null && b.statusCode < 300;
+  });
+}
+
 export async function runScenarios(db: Db, testRunId: number, endpoints: EndpointSpec[], target: TargetConfig, batteryTrials: Trial[], opts: ExerciseOptions): Promise<ScenariosResult> {
   const out: ScenariosResult = { trials: [], claims: [], requests: 0, endpoints: [] };
+  const ran = new Set<string>();
+  const take = (ep: EndpointSpec, r: { trials: Trial[]; claims: CandidateClaim[]; requests: number }) => {
+    out.trials.push(...r.trials);
+    out.claims.push(...r.claims);
+    out.requests += r.requests;
+    if (r.requests) ran.add(endpointLabel(ep));
+  };
+
+  // Scenario 1: pagination completeness, on paginated list endpoints.
   const pag = paginationConfig(target);
-  if (!pag) {
-    log.info('scenario', 'pagination scenario disabled by the target');
-    return out;
-  }
-  const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => pagingParams(ep));
-  if (!candidates.length) {
-    log.info('scenario', 'no paginated list endpoints with a working baseline; no scenarios run');
-    return out;
-  }
-  log.info('scenario', `pagination completeness on ${candidates.length} endpoint(s): ${pag.pages} pages of ${pag.page_size}, two walks + one re-read`);
-  for (const ep of candidates) {
-    try {
-      const r = await runPaginationScenario(db, testRunId, ep, target, pag, opts);
-      out.trials.push(...r.trials);
-      out.claims.push(...r.claims);
-      out.requests += r.requests;
-      if (r.requests) out.endpoints.push(endpointLabel(ep));
-    } catch (e) {
-      // A scenario that breaks must not take the run down with it; the battery's claims stand.
-      log.warn('scenario', `${endpointLabel(ep)}: pagination scenario failed: ${(e as Error).message}`);
+  if (!pag) log.info('scenario', 'pagination scenario disabled by the target');
+  else {
+    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => pagingParams(ep));
+    if (!candidates.length) log.info('scenario', 'no paginated list endpoints with a working baseline; pagination scenario skipped');
+    else log.info('scenario', `pagination completeness on ${candidates.length} endpoint(s): ${pag.pages} pages of ${pag.page_size}, two walks + one re-read`);
+    for (const ep of candidates) {
+      try {
+        take(ep, await runPaginationScenario(db, testRunId, ep, target, pag, opts));
+      } catch (e) {
+        // A scenario that breaks must not take the run down with it; the battery's claims stand.
+        log.warn('scenario', `${endpointLabel(ep)}: pagination scenario failed: ${(e as Error).message}`);
+      }
     }
   }
+
+  // Scenarios 3 + 6: conditional requests and rate-limit accounting, on every working endpoint.
+  if (target.scenarios?.conditional === false) log.info('scenario', 'conditional-request scenario disabled by the target');
+  else {
+    const candidates = workingEndpoints(endpoints, batteryTrials);
+    if (candidates.length) log.info('scenario', `conditional requests + rate-limit accounting on ${candidates.length} endpoint(s): up to 4 requests each`);
+    for (const ep of candidates) {
+      try {
+        take(ep, await runConditionalScenario(db, testRunId, ep, target, opts));
+      } catch (e) {
+        log.warn('scenario', `${endpointLabel(ep)}: conditional scenario failed: ${(e as Error).message}`);
+      }
+    }
+  }
+  out.endpoints = [...ran];
   log.info('scenario', `${out.requests} request(s), ${out.claims.length} candidate claim(s) on ${out.endpoints.length} endpoint(s)`);
   return out;
 }

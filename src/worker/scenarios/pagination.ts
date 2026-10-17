@@ -21,15 +21,15 @@
  * target's rate settings. Nothing here needs an account.
  */
 import type { Db } from '../../db/client.js';
-import { schema } from '../../db/client.js';
-import type { NewTrial, Trial } from '../../db/schema.js';
+import type { Trial } from '../../db/schema.js';
 import { buildBaseline } from '../battery/index.js';
 import { scenarioClaimKey, type CandidateClaim } from '../claims.js';
-import { runOne, type ExerciseOptions } from '../exercise.js';
+import type { ExerciseOptions } from '../exercise.js';
 import type { TrialInput } from '../http.js';
 import { log } from '../log.js';
 import { canonicalJson, endpointLabel, sha256, type EndpointSpec, type ParamSpec } from '../spec.js';
-import { intervalFor, type TargetConfig } from '../target.js';
+import type { TargetConfig } from '../target.js';
+import { makeRequester } from './runner.js';
 
 export const SCENARIO_VERSION = '0.1.0';
 export const DEFAULT_PAGES = 4;
@@ -239,11 +239,8 @@ export async function runPaginationScenario(db: Db, testRunId: number, ep: Endpo
   const empty: ScenarioResult = { trials: [], claims: [], requests: 0 };
   if (!params) return empty;
   const base = buildBaseline(ep, target);
-  const gap = Math.max(opts.minIntervalMs ?? target.rate?.min_interval_ms ?? 150, intervalFor(target, label));
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const trials: Trial[] = [];
+  const req = makeRequester(db, testRunId, label, target, opts);
   const byId = new Map<number, Trial>();
-  let requests = 0;
 
   const withPage = (page: number): TrialInput => {
     const q = base.input.query.filter(([k]) => k !== params.page.name && k !== params.size?.name);
@@ -253,12 +250,7 @@ export async function runPaginationScenario(db: Db, testRunId: number, ep: Endpo
   };
 
   const fetchPage = async (input: TrialInput, id: string, page: number): Promise<PageObs> => {
-    if (requests > 0 && gap > 0) await sleep(gap);
-    requests++;
-    const { out, row } = await runOne(input, opts);
-    const values: NewTrial = { testRunId, endpoint: label, mutationType: 'scenario', mutationId: id, paramName: params.page.name, ...row };
-    const [inserted] = await db.insert(schema.trials).values(values).returning();
-    trials.push(inserted);
+    const { trial: inserted, out } = await req.send(input, id, params.page.name);
     byId.set(inserted.id, inserted);
     const list = out.status !== null && out.status < 300 ? listItems(out.body) : null;
     const obs: PageObs = { trialId: inserted.id, status: out.status, page, ids: list ? list.items.map(identityOf) : [], link: parseLinkHeader(out.headers['link']), isList: !!list };
@@ -283,7 +275,7 @@ export async function runPaginationScenario(db: Db, testRunId: number, ep: Endpo
       break;
     }
   }
-  if (!byNumber[0]?.isList) return { trials, claims: [], requests };
+  if (!byNumber[0]?.isList) return { trials: req.trials, claims: [], requests: req.count };
 
   // Walk B: by Link, as many pages as walk A reached beyond the first.
   const byLink: PageObs[] = [];
@@ -311,6 +303,6 @@ export async function runPaginationScenario(db: Db, testRunId: number, ep: Endpo
   }
 
   const claims = paginationClaims(label, params.page.name, params.size?.name ?? null, cfg.page_size, { byNumber, byLink, again, againAfterMs, endSeen }, byId);
-  log.info('scenario', `${label}: pagination scenario made ${requests} request(s), ${claims.length} claim(s)`);
-  return { trials, claims, requests };
+  log.info('scenario', `${label}: pagination scenario made ${req.count} request(s), ${claims.length} claim(s)`);
+  return { trials: req.trials, claims, requests: req.count };
 }

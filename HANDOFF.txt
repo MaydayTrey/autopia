@@ -230,10 +230,28 @@ sane API, so it needs no doc entry to compare against:
   SIDE FIX: response headers that embed URLs (Link, Location) echoed a
   credential query param into stored trials; redactResponseHeaders() now
   scrubs them by param name (contribution.test caught it).
-  NEXT: S3 conditional requests (ETag/If-None-Match -> 304? costs
-  x-ratelimit-remaining?), then S6 rate-limit truth. Search endpoints need
-  a baseline query with >1 page of results to say anything (targets:
-  github search q currently yields 1 repo; widen it).
+  S3 + S6 BUILT (same day): src/worker/scenarios/conditional.ts, one
+  sequence per working endpoint (fresh, If-None-Match current, stale tag,
+  If-Modified-Since when sent; or fresh + plain repeat when no ETag).
+  Claims (kind 'undocumented', source 'scenario'): conditional_etag,
+  conditional_last_modified, conditional_none, conditional_cost (304 free
+  or counted; needs the counter on all three and the same reset),
+  rate_limit_accounting (exactly 1 per full request + fixed window + reset
+  format + limit; "not counted" when unchanged; "weighted" when N). No
+  volatile numbers in statements. Shared requester: scenarios/runner.ts
+  (pagination.ts refactored onto it). http.ts KEEP_HEADERS gained
+  last-modified, age, vary. Mock: ETag (body hash), fixed Last-Modified,
+  x-ratelimit family with a counter, 304 on match; quirks cost_304 and
+  no_etag; pipeline.test covers free 304, costly 304, no validators.
+  Brief sheets now include every scenario claim regardless of kind.
+  LIVE PROOF on GitHub (throwaway PGlite, 22 requests): /rate_limit NOT
+  counted (remaining unchanged) and no validators; repo/commits/users honor
+  ETag AND If-Modified-Since, 304 free, 1 per full request, fixed window,
+  reset epoch seconds, limit 5000; issues/releases ETag only (no
+  Last-Modified); search: no validators, separate pool, limit 30.
+  NEXT: S4 filter composition, S2 list/detail, S5 sort contract. Search
+  endpoints need a baseline query with >1 page of results for S1 (github
+  search q currently yields 1 repo; widen it).
 
   HOOK FALSE POSITIVES seen while dogfooding (fixed in plugin 0.3.3): the
   pre hook matched api.github.com inside a raw.githubusercontent.com PATH

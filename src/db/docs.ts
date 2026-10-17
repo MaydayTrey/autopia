@@ -313,7 +313,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
 
   if (opts.brief) {
     const eps = scoped ? [scoped] : allEndpoints;
-    const watchAll = allClaims.filter((c) => BRIEF_KINDS.has(c.kind) && c.divergence_type !== 'spec' && briefWorthy(c));
+    const watchAll = allClaims.filter((c) => (BRIEF_KINDS.has(c.kind) || c.source === 'scenario') && c.divergence_type !== 'spec' && briefWorthy(c));
     const common = commonAcrossEndpoints(watchAll, allEndpoints).filter((g) => !scoped || g.except !== scoped);
     const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
     const watch = watchAll.filter((c) => eps.includes(c.endpoint));
@@ -334,7 +334,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   // Scenario claims (the API used the way a program uses it, judged by invariants): their own section.
   const usage = claims.filter((c) => c.source === 'scenario');
   if (usage.length) {
-    lines.push('', `## How it behaves in use (${usage.length})`, '', 'Multi-request scenarios checked against invariants the docs never state (each item once across pages, Link chain vs page numbers, stability between reads). Each line cites every request in the walk.');
+    lines.push('', `## How it behaves in use (${usage.length})`, '', 'Multi-request scenarios checked against invariants the docs never state: paging (each item once, Link chain vs page numbers, stability between reads), conditional requests (ETag / If-None-Match, whether a 304 costs quota), and rate-limit accounting. Each line cites every request in its sequence.');
     for (const c of usage.sort(byKey)) lines.push(`- **${c.endpoint}** ${c.statement} ${ev(c)}`);
   }
   const body = claims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint' && c.source !== 'scenario');
