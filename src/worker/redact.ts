@@ -43,7 +43,15 @@ export function redactInput(input: TrialInput): TrialInput {
  */
 export function redactResponseHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) out[k] = v.replace(/([?&])([^=&\s<>;,]+)=([^&\s<>;,]*)/g, (m, sep: string, name: string, value: string) => (isSecretParam(decodeURIComponent(name)) && shouldRedact(value) ? `${sep}${name}=${REDACTED}` : m));
+  for (const [k, v] of Object.entries(headers)) out[k] = v.replace(/([?&])([^=&\s<>;,]+)=([^&\s<>;,]*)/g, (m, sep: string, name: string, value: string) => {
+    let decoded = name;
+    try {
+      decoded = decodeURIComponent(name);
+    } catch {
+      /* malformed percent sequence: judge the raw name */
+    }
+    return isSecretParam(decoded) && shouldRedact(value) ? `${sep}${name}=${REDACTED}` : m;
+  });
   return out;
 }
 

@@ -15,9 +15,13 @@ import { log } from '../log.js';
 import { endpointLabel, type EndpointSpec } from '../spec.js';
 import type { TargetConfig } from '../target.js';
 import { runConditionalScenario } from './conditional.js';
+import { filterConfig, filterParams, runFilterScenario } from './filters.js';
 import { paginationConfig, pagingParams, runPaginationScenario, SCENARIO_VERSION } from './pagination.js';
 
 export { SCENARIO_VERSION };
+
+/** Scenarios run on at most this many endpoints per target per run: a 200-endpoint spec must not turn into 800 nightly requests. */
+export const MAX_SCENARIO_ENDPOINTS = 25;
 
 export interface ScenariosResult {
   trials: Trial[];
@@ -64,7 +68,7 @@ export async function runScenarios(db: Db, testRunId: number, endpoints: Endpoin
   const pag = paginationConfig(target);
   if (!pag) log.info('scenario', 'pagination scenario disabled by the target');
   else {
-    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => pagingParams(ep));
+    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => pagingParams(ep)).slice(0, MAX_SCENARIO_ENDPOINTS);
     if (!candidates.length) log.info('scenario', 'no paginated list endpoints with a working baseline; pagination scenario skipped');
     else log.info('scenario', `pagination completeness on ${candidates.length} endpoint(s): ${pag.pages} pages of ${pag.page_size}, two walks + one re-read`);
     for (const ep of candidates) {
@@ -77,10 +81,25 @@ export async function runScenarios(db: Db, testRunId: number, endpoints: Endpoin
     }
   }
 
+  // Scenario 4: filter composition, on list endpoints that have filter parameters with known-good values.
+  const flt = filterConfig(target);
+  if (!flt) log.info('scenario', 'filter scenario disabled by the target');
+  else {
+    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => filterParams(ep, target).length > 0).slice(0, MAX_SCENARIO_ENDPOINTS);
+    if (candidates.length) log.info('scenario', `filter composition on ${candidates.length} endpoint(s): up to ${flt.max_filters} filters, pages of ${flt.page_size}`);
+    for (const ep of candidates) {
+      try {
+        take(ep, await runFilterScenario(db, testRunId, ep, target, flt, opts));
+      } catch (e) {
+        log.warn('scenario', `${endpointLabel(ep)}: filter scenario failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
   // Scenarios 3 + 6: conditional requests and rate-limit accounting, on every working endpoint.
   if (target.scenarios?.conditional === false) log.info('scenario', 'conditional-request scenario disabled by the target');
   else {
-    const candidates = workingEndpoints(endpoints, batteryTrials);
+    const candidates = workingEndpoints(endpoints, batteryTrials).slice(0, MAX_SCENARIO_ENDPOINTS);
     if (candidates.length) log.info('scenario', `conditional requests + rate-limit accounting on ${candidates.length} endpoint(s): up to 4 requests each`);
     for (const ep of candidates) {
       try {

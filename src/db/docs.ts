@@ -313,7 +313,8 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
 
   if (opts.brief) {
     const eps = scoped ? [scoped] : allEndpoints;
-    const watchAll = allClaims.filter((c) => (BRIEF_KINDS.has(c.kind) || c.source === 'scenario') && c.divergence_type !== 'spec' && briefWorthy(c));
+    // Scenario claims join the brief sheet when confident (>= 0.8); the hedged "not checkable here" lines stay in the full sheet.
+    const watchAll = allClaims.filter((c) => (BRIEF_KINDS.has(c.kind) || (c.source === 'scenario' && c.confidence >= 0.8)) && c.divergence_type !== 'spec' && briefWorthy(c));
     const common = commonAcrossEndpoints(watchAll, allEndpoints).filter((g) => !scoped || g.except !== scoped);
     const commonKeys = new Set(common.flatMap((g) => g.claims.map((c) => c.claim_key)));
     const watch = watchAll.filter((c) => eps.includes(c.endpoint));

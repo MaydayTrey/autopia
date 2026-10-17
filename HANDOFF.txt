@@ -249,7 +249,40 @@ sane API, so it needs no doc entry to compare against:
   ETag AND If-Modified-Since, 304 free, 1 per full request, fixed window,
   reset epoch seconds, limit 5000; issues/releases ETag only (no
   Last-Modified); search: no validators, separate pool, limit 30.
-  NEXT: S4 filter composition, S2 list/detail, S5 sort contract. Search
+  S4 FILTER COMPOSITION BUILT (same day): src/worker/scenarios/filters.ts.
+  Per list endpoint with optional_values: unfiltered page + one page per
+  filter (max 4) + one per pair (max 3), repeats on findings. Claims
+  (kind 'undocumented', key scenario:filter:<ep>:<param> and
+  scenario:filter_combo:<ep>:<a_b>): honored (every item matches the
+  same-named field); "has no visible effect" (page identical AND field
+  mismatch: default or ignored; NEVER "not honored", because a same-named
+  item field is a hint, not a definition: GitHub commits "sha" = start ref);
+  "changes the result but does not select by field X"; "changes the result
+  (not checkable)" at 0.7 (full sheet only: brief takes scenario claims at
+  >= 0.8); combos: containment against COMPLETE single results (short page,
+  no rel=next), field agreement only for filters whose own check passed;
+  zero-item singles and vacuous empty combos are not claimed. Mock: kind
+  (honored, enum) and tag (documented, ignored). LIVE (GitHub, 17 req):
+  issues state/assignee/type honored and compose; commits sha "no visible
+  effect" (correct: default ref), path changes result (not checkable).
+  Same-origin rule: pagination never follows a Link rel=next off the
+  endpoint's origin (would carry the token elsewhere).
+  FOUR-ROLE LOOP 2026-10-17 (PO / developer / QA / naive customer agents):
+  PO rules for a published scenario claim: truth under uncertainty (name
+  both explanations or claim nothing), no volatile numbers, two sightings +
+  VERIFY, actionable, no spec-dependence (param-name = field-name is a
+  guess). CUSTOMER (cold, curl only): kept it; two shipped mistakes caught
+  (per_page=200 clamp, since format); most valuable = commits since silent
+  empty list; most missing = conditional requests (built today, lands with
+  the nightly run); confusing = symmetric sibling contradiction (fixed in
+  code, clears on the next nightly run), search_claims verbosity/ordering
+  (OPEN: scoped Markdown answer, rank by endpoint of the asked URL),
+  list_tools has verified_claims not claims (naming), "Did you mean
+  anthropic-api" for stripe (OPEN: suggestTools threshold), hook fired on
+  a GitHub URL inside a JSON body posted to the compendium (FIXED 0.3.5:
+  JSON string values are blanked before host matching) and the post hook
+  then reported a 400 that never happened (same root cause).
+  NEXT: S2 list/detail, S5 sort contract. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

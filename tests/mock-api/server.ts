@@ -11,6 +11,8 @@
  *   - unknown query params              -> ignored (200)
  *   - api_key                           -> any value accepted (not enforced)
  *   - page = 0                          -> 400
+ *   - kind (enum odd|even)              -> honored (items carry kind); bad value 400
+ *   - tag                               -> documented, silently IGNORED (items carry tag "none")
  *   - trailing slash                    -> 404 text
  *   - errors                            -> 400 {"error":{"code","message"}}
  * v2 changes: q enforced (400), limit "abc" rejected (400), limit 101 rejected
@@ -48,6 +50,8 @@ function spec(serverUrl: string, version: string) {
             { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } },
             { name: 'page', in: 'query', schema: { type: 'integer' } },
             { name: 'sort', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'] } },
+            { name: 'kind', in: 'query', schema: { type: 'string', enum: ['odd', 'even'] } },
+            { name: 'tag', in: 'query', schema: { type: 'string' } },
             { name: 'api_key', in: 'query', schema: { type: 'string' } },
           ],
           responses: { '200': { description: 'ok' } },
@@ -64,7 +68,7 @@ function spec(serverUrl: string, version: string) {
   };
 }
 
-const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'api_key']);
+const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'kind', 'tag', 'api_key']);
 
 function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string, quirks: MockQuirks = {}, state: MockState = { counted: 0 }) {
   const u = new URL(req.url ?? '/', 'http://x');
@@ -122,10 +126,13 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     }
     if (page !== null && page !== '' && !(Number(page) >= 1)) return err('invalid_page', 'page must be >= 1');
     if (sort !== null && sort !== '' && sort !== 'asc' && sort !== 'desc') return err('invalid_sort', 'sort must be asc or desc');
+    const kind = u.searchParams.get('kind');
+    if (kind !== null && kind !== '' && kind !== 'odd' && kind !== 'even') return err('invalid_kind', 'kind must be odd or even');
     // A 7-item dataset paged by `page`; the page size is min(limit, 3) (a planted clamp). A Link
     // header offers rel="next" while more remain. With the page_overlap quirk every page after the
     // first starts one item early, so consecutive pages share an item (a real-world ordering bug).
-    const DATASET = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}`, q: q[0] ?? null }));
+    const ALL = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}`, q: q[0] ?? null, kind: (i + 1) % 2 ? 'odd' : 'even', tag: 'none' }));
+    const DATASET = kind ? ALL.filter((it) => it.kind === kind) : ALL; // `tag` is deliberately ignored
     const size = Math.min(limit, 3);
     const pageNo = page ? Math.max(1, Math.floor(Number(page)) || 1) : 1;
     const start = quirks.page_overlap ? (pageNo - 1) * Math.max(1, size - 1) : (pageNo - 1) * size;

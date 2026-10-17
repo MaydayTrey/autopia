@@ -103,7 +103,7 @@ export function ruleClaimKey(rule: string, endpoint: string, param: string | nul
   return `rule:${rule}:${slug(endpoint)}:${param ?? '-'}`;
 }
 
-/** Scenario claims: "scenario:<check>:<endpoint>:-". One claim per invariant per endpoint; stable across runs. */
-export function scenarioClaimKey(check: string, endpoint: string): string {
-  return `scenario:${check}:${slug(endpoint)}:-`;
+/** Scenario claims: "scenario:<check>:<endpoint>:<param or ->". One claim per invariant per endpoint (per parameter for filters); stable across runs. */
+export function scenarioClaimKey(check: string, endpoint: string, param: string | null = null): string {
+  return `scenario:${check}:${slug(endpoint)}:${param ? slug(param) : '-'}`;
 }

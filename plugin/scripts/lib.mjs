@@ -43,7 +43,9 @@ export function hostIndex(tools) {
  */
 export function matchHosts(text, index) {
   if (!text) return [];
-  const lower = text.toLowerCase();
+  // A URL inside a JSON string value (a request BODY to some other service, e.g. {"tool":"https://api.github.com/..."}
+  // posted to the compendium itself) is data, not a call to that host: blank such values first.
+  const lower = text.toLowerCase().replace(/"[a-z0-9_.-]+"\s*:\s*"[^"]*"/g, '"":""');
   const out = [];
   for (const host of Object.keys(index).sort((a, b) => b.length - a.length)) {
     if (!lower.includes(host)) continue;

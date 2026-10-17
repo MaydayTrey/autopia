@@ -74,4 +74,9 @@ test('conditionalClaims: no validators at all; no rate-limit headers; a window t
 
   const failed = [o(1, 'fresh', 500, {})];
   assert.deepEqual(conditionalClaims('GET /x', failed, statuses(failed)), []);
+  // A timed-out conditional request is not an inconsistency; a 304 without rate headers leaves accounting unclaimed.
+  const timedOut: CondObs[] = [o(1, 'fresh', 200, { ...VAL, ...RL(10) }), { trialId: 2, step: 'if_none_match', status: null, bodyKind: 'none', headers: {} }, o(3, 'stale_tag', 200, { ...VAL, ...RL(9) })];
+  assert.ok(!conditionalClaims('GET /x', timedOut, new Map([[1, { statusCode: 200 }], [2, { statusCode: null }], [3, { statusCode: 200 }]])).some((c) => /conditional_etag/.test(c.claim_key)));
+  const no304Headers = [o(1, 'fresh', 200, { ...VAL, ...RL(10) }), o(2, 'if_none_match', 304, VAL), o(3, 'stale_tag', 200, { ...VAL, ...RL(8) })];
+  assert.ok(!conditionalClaims('GET /x', no304Headers, statuses(no304Headers)).some((c) => /rate_limit_accounting|conditional_cost/.test(c.claim_key)));
 });

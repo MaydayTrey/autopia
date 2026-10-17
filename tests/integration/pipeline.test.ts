@@ -33,7 +33,7 @@ before(async () => {
   queries = await import('../../src/db/queries.js');
   const { validateTarget } = await import('../../src/worker/target.js');
   api = await startMockApi('v1');
-  target = validateTarget({ name: 'mock-items', category: 'test', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } } });
+  target = validateTarget({ name: 'mock-items', category: 'test', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } }, optional_values: { '/v1/items': { kind: 'odd', tag: 'x' } } });
   db = await client.getDb();
 });
 
@@ -66,16 +66,21 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   assert.ok(stored.some((c) => c.endpoint === 'GET /v1/items/{id}'));
   // Scenario battery: pagination completeness ran on the list endpoint; its claims are verified like any other.
   assert.equal(s.scenarios.endpoints.length, 2, JSON.stringify(s.scenarios)); // pagination on the list, conditional on both
-  assert.ok(s.scenarios.requests >= 14 && s.scenarios.requests <= 16, `scenario requests ${s.scenarios.requests}`);
+  // pagination 6 + conditional 4+4 + filters (unfiltered, kind, tag, tag again, kind+tag) 5 = 19
+  assert.ok(s.scenarios.requests >= 19 && s.scenarios.requests <= 21, `scenario requests ${s.scenarios.requests}`);
   const scen = stored.filter((c) => c.source === 'scenario');
   const statements = JSON.stringify(scen.map((c) => [c.claimKey, c.statement]));
-  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once: 7 items, 7 distinct ids, on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once \(no id repeats across pages\), on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_link:get_v1_items:-' && /identical id sequence/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_stable:get_v1_items:-' && /same order/.test(c.statement)), statements);
-  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_page_size:get_v1_items:-' && /limit=5 is not what comes back: pages 1\.\.2 held 3 items/.test(c.statement)), 'the planted clamp shows up as a page-size finding: ' + statements);
-  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_end:get_v1_items:-' && /ends at page 3/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_page_size:get_v1_items:-' && /limit=5 is not what comes back: full pages held 3 items/.test(c.statement)), 'the planted clamp shows up as a page-size finding: ' + statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_end:get_v1_items:-' && /ends within the walk: the last page of limit=5 is short/.test(c.statement)), statements);
   assert.ok(scen.filter((c) => /pagination_/.test(c.claimKey)).every((c) => c.kind === 'pagination'));
   assert.ok(scen.every((c) => c.verified && c.evidenceTrialIds.length >= 1));
+  // Filter composition: kind is honored, tag is silently ignored, and the pair shows tag ignored in combination too.
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:kind' && /is honored: every item on the first page matches on field "kind"/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:tag' && /has no visible effect: the first page is identical to the unfiltered one and none of its items has "tag" equal to that value \(HTTP 200, seen twice\)/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:filter_combo:get_v1_items:kind_tag' && /is consistent: a non-empty result, every item matching "kind" \(HTTP 200\)/.test(c.statement)), statements);
   // Conditional requests + rate-limit accounting, on both endpoints.
   for (const ep of ['get_v1_items', 'get_v1_items_id']) {
     assert.ok(scen.some((c) => c.claimKey === `scenario:conditional_etag:${ep}:-` && /honor If-None-Match: re-requesting with the current tag returns HTTP 304/.test(c.statement)), ep + ' ' + statements);
@@ -195,7 +200,7 @@ test('scenario: overlapping pages are reported as duplicates, reproduced by the 
     const s = await pipeline.runPipeline(db, t2, { ...fast, llm: null });
     const u = s.verified.find((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-');
     assert.ok(u, 'uniqueness claim present: ' + JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
-    assert.match(u!.statement, /repeats items across pages: 2 id\(s\) appear on more than one page \(e\.g\. 3 on pages 1 and 2\)/);
+    assert.match(u!.statement, /repeats items across pages: ids from one page appear again on a later page \(e\.g\. on pages 1 and 2\)/);
     assert.match(u!.statement, /in both a numbered walk and a Link-header walk/);
     // The sheet surfaces it in its own section, and the brief sheet carries it as a pagination watch-out.
     const { renderToolDocs } = await import('../../src/db/docs.js');

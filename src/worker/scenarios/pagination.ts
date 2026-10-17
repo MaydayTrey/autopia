@@ -103,7 +103,9 @@ export function parseLinkHeader(h: string | undefined | null): Record<string, st
 
 /** A TrialInput for an absolute URL (from a Link header), carrying the headers of a known-good input. */
 export function inputFromUrl(url: string, like: TrialInput): TrialInput {
-  const u = new URL(url);
+  const u = new URL(url, like.url); // relative Link URLs are legal; they resolve against the endpoint
+  const b = new URL(like.url);
+  if (!/^https?:$/.test(u.protocol) || u.host !== b.host) throw new Error(`Link URL leaves the endpoint's origin: ${u.origin}`);
   const query: [string, string][] = [...u.searchParams.entries()];
   return { method: 'GET', url: `${u.origin}${u.pathname}`, query, headers: { ...like.headers }, ...(like.pathParams ? { pathParams: { ...like.pathParams } } : {}) };
 }
@@ -173,10 +175,10 @@ export function paginationClaims(endpoint: string, pageParam: string, sizeParam:
   if (filled.length >= 2) {
     const dB = B.length >= 2 ? dupes(B) : null;
     if (dA.count === 0 && (dB === null || dB.count === 0)) {
-      out.push(claim('pagination_unique', `Walking ${walked} returns each item once: ${items(totalA)}, ${totalA} distinct ids${B.length >= 2 ? ', on both a numbered walk and a Link-header walk' : ''} (${status}).`, [...A, ...B]));
-    } else if (dA.count > 0 && (dB === null || dB.count > 0)) {
+      out.push(claim('pagination_unique', `Walking ${walked} returns each item once (no id repeats across pages)${B.length >= 2 ? ', on both a numbered walk and a Link-header walk' : ''} (${status}).`, [...A, ...B]));
+    } else if (dA.count > 0 && dB !== null && dB.count > 0) {
       const s = dA.sample!;
-      out.push(claim('pagination_unique', `Walking ${walked} repeats items across pages: ${dA.count} id(s) appear on more than one page (e.g. ${s.id} on pages ${s.pages.join(' and ')})${dB ? ', in both a numbered walk and a Link-header walk' : ''} (${status}). Page boundaries are not stable; de-duplicate client-side or page by a cursor.`, [...A, ...B]));
+      out.push(claim('pagination_unique', `Walking ${walked} repeats items across pages: ids from one page appear again on a later page (e.g. on pages ${s.pages.slice(0, 2).join(' and ')}), in both a numbered walk and a Link-header walk (${status}). Page boundaries are not stable; de-duplicate client-side or page by a cursor.`, [...A, ...B]));
     } else {
       log.info('scenario', `${endpoint}: duplicates seen in one walk only (numbered ${dA.count}, link ${dB?.count ?? 'n/a'}); not claimed`);
     }
@@ -186,7 +188,7 @@ export function paginationClaims(endpoint: string, pageParam: string, sizeParam:
   const firstLink = A[0].link;
   if (secondHasItems) {
     if (!firstLink.next) {
-      out.push(claim('pagination_link', `Responses carry no Link header with rel="next" even though more pages exist (page 2 of ${sizeText} returned ${items(A[1].ids.length)}): pagination must be driven by counting "${pageParam}" (${status}).`, [A[0], A[1]]));
+      out.push(claim('pagination_link', `Responses carry no Link header with rel="next" even though more pages exist (page 2 of ${sizeText} is non-empty): pagination must be driven by counting "${pageParam}" (${status}).`, [A[0], A[1]]));
     } else if (B.length >= 1) {
       const compared = Math.min(A.length - 1, B.length);
       const mismatches: number[] = [];
@@ -198,11 +200,9 @@ export function paginationClaims(endpoint: string, pageParam: string, sizeParam:
 
   // I3 stability of a page read twice.
   if (w.again && w.again.status === A[0].status && w.again.isList && secondHasItems) {
-    const secs = Math.max(1, Math.round(w.againAfterMs / 1000));
     const same = w.again.ids.join('\n') === A[1].ids.join('\n');
-    const changed = w.again.ids.filter((id, i) => A[1].ids[i] !== id).length;
-    if (same) out.push(claim('pagination_stable', `Page 2 read twice ${secs}s apart returned the same ${A[1].ids.length} ids in the same order (${status}): ordering is stable enough to page through without shifting.`, [A[1], w.again]));
-    else out.push(claim('pagination_stable', `Page 2 read twice ${secs}s apart differed in ${changed} of ${Math.max(A[1].ids.length, w.again.ids.length)} positions (${status}): the list is live-ordered, so items can shift between pages while paging. De-duplicate, or page by a cursor or an explicit sort.`, [A[1], w.again]));
+    if (same) out.push(claim('pagination_stable', `Page 2 read twice a few seconds apart returned the same ids in the same order (${status}): ordering is stable enough to page through without shifting.`, [A[1], w.again]));
+    else out.push(claim('pagination_stable', `Page 2 read twice a few seconds apart did not return the same ids in the same order (${status}): the list is live-ordered, so items can shift between pages while paging. De-duplicate, or page by a cursor or an explicit sort.`, [A[1], w.again]));
   }
 
   // I4 page size honored on full pages.
@@ -211,8 +211,8 @@ export function paginationClaims(endpoint: string, pageParam: string, sizeParam:
     const full = A.filter((p, i) => A[i + 1] && A[i + 1].ids.length > 0);
     if (full.length) {
       const sizes = [...new Set(full.map((p) => p.ids.length))];
-      if (sizes.length === 1 && sizes[0] === size) out.push(claim('pagination_page_size', `${sizeParam}=${size} is honored: pages 1..${full.length} held exactly ${size} items each (${status}).`, full));
-      else out.push(claim('pagination_page_size', `${sizeParam}=${size} is not what comes back: pages 1..${full.length} held ${sizes.sort((a, b) => a - b).join('/')} items (${status}). Read the page size from the response, not from the request.`, full));
+      if (sizes.length === 1 && sizes[0] === size) out.push(claim('pagination_page_size', `${sizeParam}=${size} is honored: every full page held exactly ${size} items (${status}).`, full));
+      else out.push(claim('pagination_page_size', `${sizeParam}=${size} is not what comes back: full pages held ${sizes.sort((a, b) => a - b).join('/')} items (${status}). Read the page size from the response, not from the request.`, full));
     }
   }
 
@@ -220,8 +220,8 @@ export function paginationClaims(endpoint: string, pageParam: string, sizeParam:
   if (w.endSeen) {
     const last = A[A.length - 1];
     const trailing = last.link.next ? ' but its Link header still offers rel="next"' : !last.link.next && firstLink.next ? ' and the Link header stops offering rel="next"' : '';
-    if (last.ids.length === 0 && last.page > 1) out.push(claim('pagination_end', `The list ends at page ${last.page - 1} of ${sizeText}: page ${last.page} returns an empty list${trailing} (${status}), not an error.`, [last]));
-    else out.push(claim('pagination_end', `The list ends at page ${last.page} of ${sizeText}: that page holds ${items(last.ids.length)}${trailing} (${status}).`, [last]));
+    if (last.ids.length === 0 && last.page > 1) out.push(claim('pagination_end', `Past the last page, a page of ${sizeText} returns an empty list${trailing} (${status}), not an error.`, [last]));
+    else out.push(claim('pagination_end', `The list ends within the walk: the last page of ${sizeText} is short${trailing} (${status}).`, [last]));
   }
   return out;
 }
@@ -279,10 +279,17 @@ export async function runPaginationScenario(db: Db, testRunId: number, ep: Endpo
 
   // Walk B: by Link, as many pages as walk A reached beyond the first.
   const byLink: PageObs[] = [];
+  // The Link header is API-supplied data. A rel="next" that leaves the endpoint's origin (another
+  // host, scheme or port) is never followed: the request would carry the target's credentials there.
+  const origin = new URL(base.input.url).origin;
   let next = byNumber[0].link.next;
   for (let i = 1; i < byNumber.length && next; i++) {
     let input: TrialInput;
     try {
+      if (new URL(next).origin !== origin) {
+        log.warn('scenario', `${label}: Link rel="next" points off-origin (${new URL(next).origin}); not followed`);
+        break;
+      }
       input = inputFromUrl(next, base.input);
     } catch {
       break;

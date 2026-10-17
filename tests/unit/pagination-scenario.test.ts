@@ -41,7 +41,13 @@ test('inputFromUrl: the Link URL becomes a trial input with the known-good heade
   assert.deepEqual(i.query, [['per_page', '5'], ['page', '2']]);
   assert.deepEqual(i.headers, like.headers);
   assert.deepEqual(i.pathParams, like.pathParams);
-  assert.throws(() => inputFromUrl('not a url', like));
+  assert.equal(new URL(inputFromUrl('not a url', like).url).host, 'api.github.com', 'a bare path resolves against the endpoint, never elsewhere');
+  // Foreign host, other scheme or port: refused (the request would carry the token there); relative URLs resolve against the endpoint.
+  assert.throws(() => inputFromUrl('https://evil.example/x?page=2', like), /leaves the endpoint's origin/);
+  assert.throws(() => inputFromUrl('http://169.254.169.254/latest/meta-data/', like), /leaves the endpoint's origin/);
+  assert.throws(() => inputFromUrl('https://api.github.com:8443/x', like), /leaves the endpoint's origin/);
+  assert.throws(() => inputFromUrl('ftp://api.github.com/x', like));
+  assert.equal(inputFromUrl('/repos/a/b/issues?page=2', like).url, 'https://api.github.com/repos/a/b/issues');
 });
 
 test('pagingParams and paginationConfig: a page number is required; size is optional; the target can tune or disable', () => {
@@ -79,13 +85,13 @@ test('paginationClaims: a clean list yields unique + link + stable + page-size +
   };
   const claims = paginationClaims('GET /v1/items', 'page', 'limit', 3, w, statuses(6));
   const by = Object.fromEntries(claims.map((c) => [c.claim_key.split(':')[1], c]));
-  assert.match(by.pagination_unique.statement, /returns each item once: 7 items, 7 distinct ids, on both a numbered walk and a Link-header walk \(HTTP 200\)/);
+  assert.match(by.pagination_unique.statement, /returns each item once \(no id repeats across pages\), on both a numbered walk and a Link-header walk \(HTTP 200\)/);
   assert.deepEqual(by.pagination_unique.evidence_trial_ids, [1, 2, 3, 4, 5]);
   assert.match(by.pagination_link.statement, /pages 2\.\.3 by Link returned the identical id sequence/);
-  assert.match(by.pagination_stable.statement, /read twice 3s apart returned the same 3 ids in the same order/);
+  assert.match(by.pagination_stable.statement, /read twice a few seconds apart returned the same ids in the same order/);
   assert.deepEqual(by.pagination_stable.evidence_trial_ids, [2, 6]);
-  assert.match(by.pagination_page_size.statement, /limit=3 is honored: pages 1\.\.2 held exactly 3 items each/);
-  assert.match(by.pagination_end.statement, /ends at page 3 of limit=3: that page holds 1 item and the Link header stops offering rel="next"/);
+  assert.match(by.pagination_page_size.statement, /limit=3 is honored: every full page held exactly 3 items/);
+  assert.match(by.pagination_end.statement, /ends within the walk: the last page of limit=3 is short and the Link header stops offering rel="next"/);
   for (const c of claims) {
     assert.equal(c.source, 'scenario');
     assert.equal(c.kind, 'pagination');
@@ -104,9 +110,9 @@ test('paginationClaims: duplicates are claimed only when BOTH walks show them; a
   };
   const c1 = paginationClaims('GET /v1/items', 'page', 'per_page', 3, both, statuses(6));
   const u = c1.find((c) => /pagination_unique/.test(c.claim_key))!;
-  assert.match(u.statement, /repeats items across pages: 2 id\(s\) appear on more than one page \(e\.g\. 3 on pages 1 and 2\), in both a numbered walk and a Link-header walk/);
+  assert.match(u.statement, /repeats items across pages: ids from one page appear again on a later page \(e\.g\. on pages 1 and 2\), in both a numbered walk and a Link-header walk/);
   const st = c1.find((c) => /pagination_stable/.test(c.claim_key))!;
-  assert.match(st.statement, /read twice 1s apart differed in 3 of 3 positions/);
+  assert.match(st.statement, /read twice a few seconds apart did not return the same ids in the same order/);
   assert.ok(!c1.some((c) => /pagination_end/.test(c.claim_key)), 'no end seen within the budget');
 
   // Numbered walk repeats, Link walk does not: not reproduced, so no uniqueness claim either way.
@@ -119,7 +125,10 @@ test('paginationClaims: duplicates are claimed only when BOTH walks show them; a
   const noLink: WalkResult = { byNumber: [obs(1, 1, [1, 2, 3]), obs(2, 2, [4, 5, 6])], byLink: [], again: null, againAfterMs: 0, endSeen: false };
   const c3 = paginationClaims('GET /v1/items', 'page', null, 3, noLink, statuses(2));
   assert.match(c3.find((c) => /pagination_link/.test(c.claim_key))!.statement, /carry no Link header with rel="next" even though more pages exist/);
-  assert.match(c3.find((c) => /pagination_unique/.test(c.claim_key))!.statement, /returns each item once: 6 items, 6 distinct ids \(HTTP 200\)/);
+  assert.match(c3.find((c) => /pagination_unique/.test(c.claim_key))!.statement, /returns each item once \(no id repeats across pages\) \(HTTP 200\)/);
+  // Duplicates seen in the numbered walk only, with no Link walk to confirm: not claimed.
+  const dupNoLink: WalkResult = { byNumber: [obs(1, 1, [1, 2, 3]), obs(2, 2, [3, 4, 5])], byLink: [], again: null, againAfterMs: 0, endSeen: false };
+  assert.ok(!paginationClaims('GET /v1/items', 'page', null, 3, dupNoLink, statuses(2)).some((c) => /pagination_unique/.test(c.claim_key)));
   assert.ok(!c3.some((c) => /pagination_page_size/.test(c.claim_key)), 'no size parameter: nothing to honor');
 
   // The first page was not a list: nothing to say.
@@ -131,5 +140,5 @@ test('paginationClaims: a list that fits in one page makes no uniqueness, Link o
   const w: WalkResult = { byNumber: [obs(1, 1, [42]), obs(2, 2, [])], byLink: [], again: obs(3, 2, []), againAfterMs: 3000, endSeen: true };
   const claims = paginationClaims('GET /search/repositories', 'page', 'per_page', 5, w, statuses(3));
   assert.deepEqual(claims.map((c) => c.claim_key.split(':')[1]), ['pagination_end']);
-  assert.match(claims[0].statement, /ends at page 1 of per_page=5: page 2 returns an empty list \(HTTP 200\), not an error/);
+  assert.match(claims[0].statement, /Past the last page, a page of per_page=5 returns an empty list \(HTTP 200\), not an error/);
 });

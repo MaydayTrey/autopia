@@ -92,7 +92,7 @@ export function conditionalClaims(endpoint: string, obs: CondObs[], trials: Map<
   const ims = by.if_modified_since;
 
   // C1 ETag round trip.
-  if (etag && inm && stale) {
+  if (etag && inm && stale && inm.status !== null && stale.status !== null) {
     if (inm.status === 304 && stale.status === 200) out.push(claim('conditional_etag', `Responses carry an ETag and honor If-None-Match: re-requesting with the current tag returns HTTP 304 with an empty body, while a stale tag returns HTTP 200 with the full body. Poll with If-None-Match instead of re-fetching.`, [fresh, inm, stale]));
     else if (inm.status === 200 && stale.status === 200) out.push(claim('conditional_etag', `Responses carry an ETag but If-None-Match is ignored: re-requesting with the current tag still returns HTTP 200 with the full body. Conditional polling saves nothing here.`, [fresh, inm, stale]));
     else if (inm.status === 304 && stale.status === 304) out.push(claim('conditional_etag', `If-None-Match returns HTTP 304 for ANY tag, including a stale one: the 304 is not conditional on the ETag, so a cached copy may be silently kept past a change.`, [fresh, inm, stale], 0.8));
@@ -126,7 +126,8 @@ export function conditionalClaims(endpoint: string, obs: CondObs[], trials: Map<
   // request in between was a 304 its cost is excluded; when it was a full 200 it counts as one.
   const last = stale ?? by.repeat;
   const rLast = last ? rateHeaders(last.headers) : null;
-  if (last?.status === 200 && rFresh && rLast && rFresh.remaining !== null && rLast.remaining !== null) {
+  // A 304 without rate headers leaves its cost unknown, so the accounting over it is not claimed.
+  if (last?.status === 200 && rFresh && rLast && rFresh.remaining !== null && rLast.remaining !== null && !(inm?.status === 304 && !rInm)) {
     const fam = rFresh.family;
     const fmt = resetFormat(rFresh.reset);
     const fmtText = fmt ? ` ${fam}-reset is ${fmt}.` : '';

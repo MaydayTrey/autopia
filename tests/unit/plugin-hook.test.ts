@@ -50,6 +50,10 @@ test('matchHosts: URL-shaped mentions only (scheme, or host followed by a path);
   // Seen in the wild: the covered host as a path segment of another host is not a call to it.
   assert.deepEqual(matchHosts('curl -s https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json', INDEX), []);
   assert.deepEqual(matchHosts('cat descriptions/api.github.com/CHANGELOG.md', INDEX), []);
+  // Seen in the wild: a covered URL as a JSON string value in a request body to another host.
+  assert.deepEqual(matchHosts(`curl -s -X POST https://autopia-mcp.onrender.com/mcp -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_tool_docs","arguments":{"tool":"https://api.github.com/repos/github/rest-api-description/issues?since=yesterday"}}}'`, INDEX), []);
+  assert.deepEqual(matchHosts(`curl -X POST https://hooks.example.com/x -d '{"url":"https://api.github.com/repos/a/b"}'`, INDEX), []);
+  assert.deepEqual(matchHosts(`curl -H 'content-type: application/json' https://api.github.com/repos/a/b/issues -d '{"title":"x"}'`, INDEX), [{ host: 'api.github.com', tools: ['github-rest'] }], 'the call target itself still matches');
   assert.equal(urlPathFor('curl -s https://raw.githubusercontent.com/x/api.github.com/api.github.com.json', 'api.github.com'), null);
 });
 
