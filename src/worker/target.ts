@@ -26,6 +26,8 @@ export interface TargetConfig {
   server?: string;
   /** Replace the spec's declared server with `server` (e.g. a regional mirror that serves the same API). */
   override_server?: boolean;
+  /** Scenario battery settings. pagination: { pages, page_size } (defaults 4 and 5), or false to skip it. */
+  scenarios?: { pagination?: { pages?: number; page_size?: number } | false };
 }
 
 /** Minimum spacing for an endpoint label ("GET /path"): the path's override if any, else the target default. */
@@ -71,5 +73,6 @@ export function validateTarget(raw: Partial<TargetConfig>): TargetConfig {
     rate_overrides: raw.rate_overrides && typeof raw.rate_overrides === 'object' ? Object.fromEntries(Object.entries(raw.rate_overrides).map(([p, r]) => [p, { min_interval_ms: Math.max(0, Number((r as { min_interval_ms?: number }).min_interval_ms ?? 0)) }])) : undefined,
     server: typeof raw.server === 'string' && /^https?:\/\//i.test(raw.server) ? raw.server.replace(/\/+$/, '') : undefined,
     override_server: raw.override_server === true,
+    scenarios: raw.scenarios && typeof raw.scenarios === 'object' ? raw.scenarios : undefined,
   };
 }

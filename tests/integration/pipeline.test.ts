@@ -64,6 +64,20 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
 
   // the second endpoint (path param) was exercised too
   assert.ok(stored.some((c) => c.endpoint === 'GET /v1/items/{id}'));
+  // Scenario battery: pagination completeness ran on the list endpoint; its claims are verified like any other.
+  assert.equal(s.scenarios.endpoints.length, 1, JSON.stringify(s.scenarios));
+  assert.ok(s.scenarios.requests >= 6 && s.scenarios.requests <= 8, `scenario requests ${s.scenarios.requests}`);
+  const scen = stored.filter((c) => c.source === 'scenario');
+  const statements = JSON.stringify(scen.map((c) => [c.claimKey, c.statement]));
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once: 7 items, 7 distinct ids, on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_link:get_v1_items:-' && /identical id sequence/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_stable:get_v1_items:-' && /same order/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_page_size:get_v1_items:-' && /limit=5 is not what comes back: pages 1\.\.2 held 3 items/.test(c.statement)), 'the planted clamp shows up as a page-size finding: ' + statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_end:get_v1_items:-' && /ends at page 3/.test(c.statement)), statements);
+  assert.ok(scen.every((c) => c.kind === 'pagination' && c.verified && c.evidenceTrialIds.length >= 1));
+  // Scenario trials are logged like any other and cited by the claims.
+  const scenTrials = await db.select().from(schema.trials).where(eq(schema.trials.testRunId, s.testRunId));
+  assert.ok(scenTrials.filter((t) => t.mutationType === 'scenario').length === s.scenarios.requests);
   // politeness: we identified ourselves
   assert.ok(api.requests.length >= s.trials);
 });
@@ -163,4 +177,26 @@ test('queries: tool knowledge, divergences, search', async () => {
   const tools = await queries.listTools(db);
   assert.equal(tools[0].name, 'mock-items');
   assert.equal(tools[0].versions, 2);
+});
+
+test('scenario: overlapping pages are reported as duplicates, reproduced by the Link walk', async () => {
+  const quirky = await startMockApi('v1', { page_overlap: true });
+  try {
+    const { validateTarget } = await import('../../src/worker/target.js');
+    const t2 = validateTarget({ name: 'mock-overlap', category: 'test', spec_url: quirky.specPath, baseline: { '/v1/items': { q: 'hello' } } });
+    const s = await pipeline.runPipeline(db, t2, { ...fast, llm: null });
+    const u = s.verified.find((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-');
+    assert.ok(u, 'uniqueness claim present: ' + JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
+    assert.match(u!.statement, /repeats items across pages: 2 id\(s\) appear on more than one page \(e\.g\. 3 on pages 1 and 2\)/);
+    assert.match(u!.statement, /in both a numbered walk and a Link-header walk/);
+    // The sheet surfaces it in its own section, and the brief sheet carries it as a pagination watch-out.
+    const { renderToolDocs } = await import('../../src/db/docs.js');
+    const full = (await renderToolDocs(db, 'mock-overlap', null, { brief: false }))!;
+    assert.match(full, /## How it behaves in use \(\d+\)/);
+    assert.match(full, /repeats items across pages/);
+    const brief = (await renderToolDocs(db, 'mock-overlap', null, { brief: true }))!;
+    assert.match(brief, /repeats items across pages/);
+  } finally {
+    await quirky.close();
+  }
 });

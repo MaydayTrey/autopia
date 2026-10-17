@@ -36,6 +36,17 @@ export function redactInput(input: TrialInput): TrialInput {
   return { ...input, headers, query };
 }
 
+/**
+ * Response headers that embed URLs (Link, Location, Content-Location) often echo the request's
+ * query string, credential parameters included. Their VALUES are redacted by parameter name before
+ * the headers are stored; the URL stays followable by name. Pure.
+ */
+export function redactResponseHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) out[k] = v.replace(/([?&])([^=&\s<>;,]+)=([^&\s<>;,]*)/g, (m, sep: string, name: string, value: string) => (isSecretParam(decodeURIComponent(name)) && shouldRedact(value) ? `${sep}${name}=${REDACTED}` : m));
+  return out;
+}
+
 /** The secrets a target holds, keyed "header:<name>" / "query:<name>", from its headers and known-good values. */
 export function secretsOf(target: TargetConfig): Record<string, string> {
   const out: Record<string, string> = {};

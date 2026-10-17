@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { REDACTED, expandEnvInTarget, redactInput, restoreInput, secretsOf } from '../../src/worker/redact.js';
+import { REDACTED, expandEnvInTarget, redactInput, redactResponseHeaders, restoreInput, secretsOf } from '../../src/worker/redact.js';
 import { validateTarget } from '../../src/worker/target.js';
 import type { TrialInput } from '../../src/worker/http.js';
 
@@ -48,4 +48,19 @@ test('expandEnvInTarget resolves ${VAR} in header values and refuses unset ones'
   assert.deepEqual(eq.baseline, { '/v1': { api_key: 'val', q: 'hello' } });
   assert.deepEqual(eq.optional_values, { '/v1': { token: 'pre-val-post' } });
   assert.throws(() => expandEnvInTarget(q, {}), /baseline value "api_key" references K/);
+});
+
+test('redactResponseHeaders: credential query params echoed inside Link / Location URLs are redacted by name; other headers untouched', () => {
+  const h = redactResponseHeaders({
+    link: '<http://x/v1/items?q=hello&api_key=super-secret&page=2>; rel="next", <http://x/v1/items?api_key=super-secret&page=9>; rel="last"',
+    location: 'http://x/v1/items?token=abc&page=1',
+    'content-type': 'application/json',
+    'x-ratelimit-remaining': '59',
+  });
+  assert.equal(h.link, `<http://x/v1/items?q=hello&api_key=${REDACTED}&page=2>; rel="next", <http://x/v1/items?api_key=${REDACTED}&page=9>; rel="last"`);
+  assert.equal(h.location, `http://x/v1/items?token=${REDACTED}&page=1`);
+  assert.equal(h['content-type'], 'application/json');
+  assert.equal(h['x-ratelimit-remaining'], '59');
+  assert.ok(!JSON.stringify(h).includes('super-secret'));
+  assert.deepEqual(redactResponseHeaders({ link: '<http://x/?api_key=invalid-key-autopia&page=2>; rel="next"' }), { link: '<http://x/?api_key=invalid-key-autopia&page=2>; rel="next"' }, 'the probe credential is not a secret');
 });

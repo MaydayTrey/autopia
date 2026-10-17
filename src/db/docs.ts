@@ -331,7 +331,13 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   }
 
   const endpoints = scoped ? [scoped] : allEndpoints;
-  const body = claims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint');
+  // Scenario claims (the API used the way a program uses it, judged by invariants): their own section.
+  const usage = claims.filter((c) => c.source === 'scenario');
+  if (usage.length) {
+    lines.push('', `## How it behaves in use (${usage.length})`, '', 'Multi-request scenarios checked against invariants the docs never state (each item once across pages, Link chain vs page numbers, stability between reads). Each line cites every request in the walk.');
+    for (const c of usage.sort(byKey)) lines.push(`- **${c.endpoint}** ${c.statement} ${ev(c)}`);
+  }
+  const body = claims.filter((c) => c.divergence_type !== 'spec' && c.kind !== 'undocumented_constraint' && c.source !== 'scenario');
 
   // Facts that hold on EVERY endpoint go once, at the top, not once per endpoint. When scoped,
   // they are computed over the whole tool (they hold here too) unless this endpoint is the exception.

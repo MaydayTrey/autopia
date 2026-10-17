@@ -33,7 +33,7 @@ export interface CandidateClaim {
   kind: ClaimKind;
   param: string | null;
   verdict: Verdict;
-  source: 'rules' | 'llm';
+  source: 'rules' | 'llm' | 'scenario';
   confidence: number; // 0..1
   evidence_trial_ids: number[];
   expectations: Expectation[];
@@ -101,4 +101,9 @@ export function llmClaimKey(c: LlmClaimOutput, trialsById: Map<number, Trial>): 
 
 export function ruleClaimKey(rule: string, endpoint: string, param: string | null): string {
   return `rule:${rule}:${slug(endpoint)}:${param ?? '-'}`;
+}
+
+/** Scenario claims: "scenario:<check>:<endpoint>:-". One claim per invariant per endpoint; stable across runs. */
+export function scenarioClaimKey(check: string, endpoint: string): string {
+  return `scenario:${check}:${slug(endpoint)}:-`;
 }

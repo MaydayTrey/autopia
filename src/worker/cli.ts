@@ -48,6 +48,7 @@ const { values, positionals } = parseArgs({
     reproduce: { type: 'boolean', default: true },
     'max-trials': { type: 'string' },
     'prune-days': { type: 'string' },
+    'no-scenarios': { type: 'boolean' },
     'dry-run': { type: 'boolean', default: false },
     quota: { type: 'string' },
     days: { type: 'string' },
@@ -75,10 +76,10 @@ async function main() {
       const llm = values.llm ? adapterFromEnv() : null;
       if (values.llm && !llm) log.warn('cli', 'ANTHROPIC_API_KEY not set: running rules-only (no LLM pass)');
       const db = await getDb();
-      const s = await runPipeline(db, target, { llm, reproduce: values.reproduce, maxTrials: values['max-trials'] ? Number(values['max-trials']) : undefined });
+      const s = await runPipeline(db, target, { llm, reproduce: values.reproduce, maxTrials: values['max-trials'] ? Number(values['max-trials']) : undefined, scenarios: !values['no-scenarios'] });
       out('');
       out(`RUN #${s.testRunId}  ${s.toolName}  version #${s.toolVersionId}${s.isNewVersion ? ' (new)' : ''}  ${(s.durationMs / 1000).toFixed(1)}s`);
-      out(`  trials ${s.trials} | candidates rules ${s.candidates.rules} + llm ${s.candidates.llm} (${s.candidates.llmDiscarded} discarded) + carried ${s.candidates.carried} (${s.candidates.carriedDropped} unmappable) | quarantined ${s.quarantined} | rejected ${s.rejected.length} | VERIFIED ${s.verified.length} | DIVERGENCES ${s.divergences}`);
+      out(`  trials ${s.trials} (scenarios: ${s.scenarios.requests} requests on ${s.scenarios.endpoints.length} endpoint(s)) | candidates rules ${s.candidates.rules} + scenario ${s.candidates.scenario} + llm ${s.candidates.llm} (${s.candidates.llmDiscarded} discarded) + carried ${s.candidates.carried} (${s.candidates.carriedDropped} unmappable) | quarantined ${s.quarantined} | rejected ${s.rejected.length} | VERIFIED ${s.verified.length} | DIVERGENCES ${s.divergences}`);
       if (s.llm.model) out(`  llm ${s.llm.model}: ${s.llm.inputTokens} in / ${s.llm.outputTokens} out tokens`);
       if (s.diff) out(`  diff vs version #${s.diff.fromVersionId}: ${JSON.stringify(s.diff.counts)}`);
       for (const r of s.rejected) out(`  rejected: ${r.reason}  <- ${r.claim.statement}`);

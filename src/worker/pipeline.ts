@@ -22,6 +22,7 @@ import { crossReference } from './crossref.js';
 import { computeAndStoreDiff, countBy, type DiffEntry } from './diff.js';
 import { discover } from './discover.js';
 import { exercise, type ExerciseOptions } from './exercise.js';
+import { runScenarios, type ScenariosResult } from './scenarios/index.js';
 import { log } from './log.js';
 import { intervalFor, selectEndpoints, type TargetConfig } from './target.js';
 import { secretsOf } from './redact.js';
@@ -31,6 +32,8 @@ import { writeClaims } from './write.js';
 export interface PipelineOptions extends ExerciseOptions {
   llm?: LlmAdapter | null; // null/undefined = rules only
   reproduce?: boolean;
+  /** Run the scenario battery (pagination completeness, ...) after the probe battery. Default true. */
+  scenarios?: boolean;
 }
 
 export interface RunSummary {
@@ -40,7 +43,9 @@ export interface RunSummary {
   isNewVersion: boolean;
   testRunId: number;
   trials: number;
-  candidates: { rules: number; llm: number; llmDiscarded: number; carried: number; carriedDropped: number };
+  candidates: { rules: number; scenario: number; llm: number; llmDiscarded: number; carried: number; carriedDropped: number };
+  /** Endpoints the scenario battery ran on, and the requests it spent. */
+  scenarios: { endpoints: string[]; requests: number };
   quarantined: number;
   rejected: { claim: CandidateClaim; reason: string }[];
   verified: Claim[];
@@ -61,16 +66,19 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
   log.info('pipeline', `test_run #${run.id} for ${d.tool.name} version #${d.version.id}`);
 
   try {
-    // 3. EXERCISE
-    const trials: Trial[] = await exercise(db, run.id, d.parsed.endpoints, target, opts);
+    // 3. EXERCISE (the probe battery)
+    const battery: Trial[] = await exercise(db, run.id, d.parsed.endpoints, target, opts);
+    // 3b. SCENARIOS: use the API the way a program does; invariants instead of spec comparisons.
+    const sc: ScenariosResult = opts.scenarios === false ? { trials: [], claims: [], requests: 0, endpoints: [] } : await runScenarios(db, run.id, d.parsed.endpoints, target, battery, opts);
+    const trials: Trial[] = [...battery, ...sc.trials];
     const trialsById = new Map(trials.map((t) => [t.id, t]));
 
-    // 4. AGGREGATE: rules first (free), then one LLM pass (optional)
-    const ruleClaims = rulesClaims(trials, d.parsed.endpoints);
+    // 4. AGGREGATE: rules first (free), then one LLM pass (optional); both read the battery only
+    const ruleClaims = rulesClaims(battery, d.parsed.endpoints);
     log.info('aggregate', `rules produced ${ruleClaims.length} candidate claims`);
     let llmResult: Awaited<ReturnType<typeof llmClaims>> | null = null;
     if (opts.llm) {
-      llmResult = await llmClaims(opts.llm, trials, d.parsed.endpoints, ruleClaims);
+      llmResult = await llmClaims(opts.llm, battery, d.parsed.endpoints, ruleClaims);
     } else {
       log.info('aggregate', 'LLM pass skipped (no adapter configured); rules-only run');
     }
@@ -83,7 +91,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
       carried = carryForwardLlmClaims(prevLlm, prevTrials, trials);
       if (carried.claims.length) carried = dropSupersededCarried(carried, llmResult?.claims ?? [], trialsById);
     }
-    const candidates = [...ruleClaims, ...(llmResult?.claims ?? []), ...carried.claims];
+    const candidates = [...ruleClaims, ...sc.claims, ...(llmResult?.claims ?? []), ...carried.claims];
 
     // 5a. EVIDENCE CHECK first (free). A claim that mis-states what its own
     // trials showed is simply wrong; dropping it here keeps it from being
@@ -116,7 +124,8 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
       isNewVersion: d.isNewVersion,
       testRunId: run.id,
       trials: trials.length,
-      candidates: { rules: ruleClaims.length, llm: llmResult?.claims.length ?? 0, llmDiscarded: llmResult?.discarded.length ?? 0, carried: carried.claims.length, carriedDropped: carried.dropped.length },
+      candidates: { rules: ruleClaims.length, scenario: sc.claims.length, llm: llmResult?.claims.length ?? 0, llmDiscarded: llmResult?.discarded.length ?? 0, carried: carried.claims.length, carriedDropped: carried.dropped.length },
+      scenarios: { endpoints: sc.endpoints, requests: sc.requests },
       quarantined: xr.quarantined.length,
       rejected: v.rejected,
       verified: stored,

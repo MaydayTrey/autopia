@@ -12,7 +12,7 @@ import type { NewTrial, Trial } from '../db/schema.js';
 import { planTrials, type Mutation } from './battery/index.js';
 import { execute, hashInput, truncateBody, type FetchLike, type TrialInput } from './http.js';
 import { log } from './log.js';
-import { redactInput } from './redact.js';
+import { redactInput, redactResponseHeaders } from './redact.js';
 import { endpointLabel, type EndpointSpec } from './spec.js';
 import { intervalFor, type TargetConfig } from './target.js';
 
@@ -68,7 +68,7 @@ export async function runOne(input: TrialInput, opts: ExerciseOptions) {
     row: {
       input: stored as unknown as object,
       inputHash: hashInput(stored),
-      response: { status: out.status, headers: out.headers, body: truncateBody(out.body), bodyKind: out.bodyKind, arrayLengths: arrayLengths(out.body) } as object,
+      response: { status: out.status, headers: redactResponseHeaders(out.headers), body: truncateBody(out.body), bodyKind: out.bodyKind, arrayLengths: arrayLengths(out.body) } as object,
       signature: out.signature as unknown as object,
       statusCode: out.status,
       errorText: out.transportError ?? (out.rateLimited ? 'rate_limited' : out.signature.errorMessage),

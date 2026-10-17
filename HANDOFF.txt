@@ -213,6 +213,27 @@ sane API, so it needs no doc entry to compare against:
   responses (one pass); the invariant library stays deterministic. Read-only
   scenarios need no accounts, so this comes BEFORE the write battery.
   Suggested order: S1, S3, S6 first (cheapest, most reused by agents).
+  STATUS 2026-10-17: S1 BUILT (src/worker/scenarios/pagination.ts + index.ts;
+  stage 3b in pipeline.ts between exercise and aggregate; claims source
+  'scenario', kind 'pagination', keys scenario:<check>:<endpoint>:-;
+  sheet section "How it behaves in use"; brief shows them as pagination
+  watch-outs; target.scenarios.pagination {pages,page_size}|false; CLI
+  --no-scenarios). Walk ends on: empty page, page shorter than page 1 (the
+  effective size; requested sizes get clamped), or no rel=next where page 1
+  had one. Findings (duplicates, Link mismatch) need BOTH walks. Mock API
+  now really paginates (7 items, size min(limit,3), Link header) with a
+  page_overlap quirk; pipeline.test covers both. LIVE PROOF (throwaway
+  PGlite, 27 requests, 2026-10-17): commits/issues/releases walk clean,
+  Link chain agrees, page 2 stable over 5s, per_page=5 honored, releases
+  ends at page 4; search/repositories (1-result query) ends at page 1,
+  page 2 empty. The nightly run-all will store these for both GitHub tools.
+  SIDE FIX: response headers that embed URLs (Link, Location) echoed a
+  credential query param into stored trials; redactResponseHeaders() now
+  scrubs them by param name (contribution.test caught it).
+  NEXT: S3 conditional requests (ETag/If-None-Match -> 304? costs
+  x-ratelimit-remaining?), then S6 rate-limit truth. Search endpoints need
+  a baseline query with >1 page of results to say anything (targets:
+  github search q currently yields 1 repo; widen it).
 
   HOOK FALSE POSITIVES seen while dogfooding (fixed in plugin 0.3.3): the
   pre hook matched api.github.com inside a raw.githubusercontent.com PATH

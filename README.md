@@ -86,6 +86,35 @@ discover -> exercise -> aggregate -> cross-ref -> verify -> write (+ diff)
   version whenever its spec hash changes; large specs are stored trimmed to the exercised
   paths, with the hash still over the full document.
 
+## The scenario battery: how an API behaves in use
+
+The probe battery changes one parameter of one request and judges the answer against the spec.
+That finds where the docs are wrong, but only along lines the docs already drew. The **scenario
+battery** uses an API the way a program does, several requests with state flowing between them,
+and judges the outcome against an **invariant** that must hold for any sane API, so it needs no
+documentation to compare against and can learn what the docs never say.
+
+Scenario 1, **pagination completeness**, runs on every endpoint whose baseline answered with a
+list and that takes a page number. Two walks of a few small pages, one by page number and one
+by following the `Link` header's `rel="next"`, plus one page read twice:
+
+- each item appears exactly once across pages (or which ids repeat, and on which pages);
+- the Link chain visits the same pages as counting up (or where it diverges, or that there is
+  no Link header at all and paging must be driven by number);
+- a page read twice a few seconds apart is identical (or the list is live-ordered and shifts);
+- the requested page size is what comes back (or it is silently clamped);
+- how the list ends: a short page, an empty page, no `rel="next"`.
+
+Every request is a trial; every claim cites all of them and is reproduced by VERIFY like any
+other. A finding such as duplicates is claimed only when **both** walks show it, so the second
+walk reproduces the invariant itself. Budget: two walks of 4 pages of 5 (`scenarios.pagination:
+{ pages, page_size }` in the target, or `false` to skip), ~8 requests per endpoint. The sheet
+shows these under **How it behaves in use**; the brief sheet carries them as pagination watch-outs.
+
+Next scenarios, in order: conditional requests (ETag / 304 and whether they cost rate limit),
+rate-limit truth, filter composition, list vs detail consistency, sort contract, encoding and
+boundaries. All read-only, none needing an account; the write battery comes after.
+
 ## Quick start
 
 ```bash

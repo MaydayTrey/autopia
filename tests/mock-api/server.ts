@@ -65,7 +65,7 @@ function spec(serverUrl: string, version: string) {
 
 const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'api_key']);
 
-function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string) {
+function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string, quirks: MockQuirks = {}) {
   const u = new URL(req.url ?? '/', 'http://x');
   if (u.pathname === '/openapi.json') {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -76,8 +76,8 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: { code, message } }));
   };
-  const ok = (body: unknown) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
+  const ok = (body: unknown, headers: Record<string, string> = {}) => {
+    res.writeHead(200, { 'content-type': 'application/json', ...headers });
     res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body));
   };
 
@@ -105,8 +105,21 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     }
     if (page !== null && page !== '' && !(Number(page) >= 1)) return err('invalid_page', 'page must be >= 1');
     if (sort !== null && sort !== '' && sort !== 'asc' && sort !== 'desc') return err('invalid_sort', 'sort must be asc or desc');
-    const items = Array.from({ length: Math.min(limit, 3) }, (_, i) => ({ id: i + 1, name: `item ${i + 1}`, q: q[0] ?? null }));
-    return ok({ items, total: items.length, page: page ? Number(page) : 1 });
+    // A 7-item dataset paged by `page`; the page size is min(limit, 3) (a planted clamp). A Link
+    // header offers rel="next" while more remain. With the page_overlap quirk every page after the
+    // first starts one item early, so consecutive pages share an item (a real-world ordering bug).
+    const DATASET = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}`, q: q[0] ?? null }));
+    const size = Math.min(limit, 3);
+    const pageNo = page ? Math.max(1, Math.floor(Number(page)) || 1) : 1;
+    const start = quirks.page_overlap ? (pageNo - 1) * Math.max(1, size - 1) : (pageNo - 1) * size;
+    const items = DATASET.slice(start, start + size);
+    const headers: Record<string, string> = {};
+    if (start + size < DATASET.length) {
+      const nextUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+      nextUrl.searchParams.set('page', String(pageNo + 1));
+      headers.link = `<${nextUrl.toString()}>; rel="next"`;
+    }
+    return ok({ items, total: DATASET.length, page: pageNo }, headers);
   }
 
   const m = u.pathname.match(/^\/v1\/items\/([^/]+)$/);
@@ -121,12 +134,17 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
   res.end('not found');
 }
 
-export async function startMockApi(profile: Profile): Promise<MockApi> {
+/** Planted scenario quirks: page_overlap makes every page after the first start one item early (the last item repeats). */
+export interface MockQuirks {
+  page_overlap?: boolean;
+}
+
+export async function startMockApi(profile: Profile, quirks: MockQuirks = {}): Promise<MockApi> {
   const requests: MockApi['requests'] = [];
   let specText = '';
   const server = http.createServer((req, res) => {
     requests.push({ method: req.method ?? '', url: req.url ?? '' });
-    handle(profile, req, res, () => specText);
+    handle(profile, req, res, () => specText, quirks);
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
