@@ -142,6 +142,17 @@ second request is needed. Disable with `scenarios.filters: false` / `scenarios.l
 Next scenarios: sort contract, encoding and boundaries. All read-only, none needing an account;
 the write battery comes after.
 
+## Health (for the maintainer)
+
+`npm run autopia -- health` prints one line per tool that needs attention: **red** when a
+scheduled tool's last claim-producing run is older than 3 days, when the latest run kept fewer
+than half the claims of the best of the previous runs (or none at all), when the last three runs
+all failed, or when a scheduled tool has had three runs and never stored a claim; **warn** when
+only the latest run failed (one bad night is routine), when a tool has no target file and is
+never refreshed, or when an unscheduled tool never stored a claim. The nightly `run-all` prints the same block at the end
+and exits non-zero only on red, so a single transient failure no longer fails the workflow and
+a quietly decaying tool does.
+
 ## Freshness
 
 Every claim records when its evidence last reproduced. A full sheet says on which date its

@@ -308,10 +308,32 @@ sane API, so it needs no doc entry to compare against:
   binance-spot-public "6 days ago" (run #33 2026-10-11 was its last run
   that stored claims: its nightly runs are not producing; INVESTIGATE);
   open-meteo-forecast gets the Coverage-dropped banner (5 vs 108).
-  NEXT (PO): nightly health check flagging tools whose claim count dropped
-  by more than half or whose last claim-producing run is > 3 days old
-  (same two signals, surfaced to the maintainer, e.g. in run-all output and
-  a GitHub Actions failure). Then S5 sort contract. Search
+  HEALTH CHECK BUILT (same day, four-role loop): src/db/health.ts
+  (classifyHealth pure + toolHealth + formatHealth). red = stale (scheduled
+  tool, last claims > 3 days), coverage_dropped (< half of previous run,
+  previous >= 10), failing (3+ consecutive failed runs); warn = failed_once,
+  never_produced, unscheduled (no target file). CLI 'health [targets-dir]'
+  (exit 1 on red); run-all prints the block and exits 1 ONLY on red (a
+  single failed target now warns; before, any failure failed the
+  workflow: the 2026-10-16 email was one frankfurter timeout, since fixed
+  by Trey's http.ts commit). npm-registry: /-/v1/search spacing 1500ms
+  (30 of 85 probes were 429 on 10-16). KNOWN from the first health run:
+  binance-spot-public is unscheduled (no target file) and stale; jikan
+  never produced (unreachable). Decide: add a binance-spot-public target
+  file (US runners may be geo-blocked by api.binance.com: check) or delete
+  tool #9; delete jikan (#8).
+  REVIEW FIXES (PO+QA): coverage reference = best of the previous <=7
+  producing runs (a second thin night no longer clears the red; same fix in
+  the sheet banner via previousRunClaimCount); a finished run with 0 claims
+  is a drop; never_produced is red after 3 runs of a scheduled tool;
+  details carry dates; scheduled = target FILE names before loading +
+  accepted requests; a target that fails before a tool row exists prints
+  RED unloadable; a run still 'running' a day later counts as failed.
+  KNOWN GAP: a spec version change that legitimately drops endpoints reads
+  as coverage_dropped for one night (acceptable; detail could say "new spec
+  version").
+  NEXT: S5 sort contract; search_claims as scoped Markdown; GitHub detail
+  endpoints into the target. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

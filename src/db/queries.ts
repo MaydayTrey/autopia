@@ -233,19 +233,23 @@ export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
   return null;
 }
 
-/** Claim count of the newest FINISHED run before `beforeRunId` on this version that stored any claims; null when there is none. */
+/** The BEST (most claims) of up to 7 earlier finished runs on this version that stored claims; null when there is none. The reference for "coverage dropped", so a second thin night does not clear it. */
 export async function previousRunClaimCount(db: Db, toolVersionId: number, beforeRunId: number): Promise<{ runId: number; claims: number } | null> {
   const runs = await db
     .select({ id: schema.testRuns.id })
     .from(schema.testRuns)
     .where(and(eq(schema.testRuns.toolVersionId, toolVersionId), eq(schema.testRuns.status, 'finished'), lt(schema.testRuns.id, beforeRunId)))
     .orderBy(desc(schema.testRuns.id))
-    .limit(5);
+    .limit(8);
+  let best: { runId: number; claims: number } | null = null;
+  let seen = 0;
   for (const r of runs) {
     const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.claims).where(eq(schema.claims.testRunId, r.id));
-    if (Number(n) > 0) return { runId: r.id, claims: Number(n) };
+    if (Number(n) === 0) continue;
+    if (!best || Number(n) > best.claims) best = { runId: r.id, claims: Number(n) };
+    if (++seen >= 7) break;
   }
-  return null;
+  return best;
 }
 
 export async function listVersions(db: Db, toolId: number): Promise<ToolVersion[]> {

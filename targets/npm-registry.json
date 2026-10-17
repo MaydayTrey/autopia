@@ -13,5 +13,6 @@
   },
   "headers": { "user-agent": "autopia/0.1 (read-only API behavior research; github.com/MaydayTrey/autopia)" },
   "rate": { "concurrency": 1, "min_interval_ms": 400 },
+  "rate_overrides": { "/-/v1/search": { "min_interval_ms": 1500 } },
   "max_trials": 300
 }

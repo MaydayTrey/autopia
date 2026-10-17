@@ -269,6 +269,26 @@ test('freshness: a fresh sheet says so in its header; a sheet rendered weeks lat
   assert.equal(queries.compactClaim(k.claims[0], new Date(Date.now() + 3 * 86_400_000)).verified_days_ago, 3);
 });
 
+test('health: the real run history classifies as the rules say; scheduled vs not; a future clock makes it stale', async () => {
+  const { toolHealth } = await import('../../src/db/health.js');
+  const rows = await toolHealth(db, { scheduled: new Set(['mock-items']) });
+  const mine = rows.find((r) => r.tool === 'mock-items')!;
+  assert.equal(mine.level, 'ok', JSON.stringify(mine.issues));
+  assert.ok(mine.runs.length >= 2 && mine.runs.every((r) => r.status === 'finished' && r.claims > 10));
+  assert.equal(mine.lastClaimRun?.id, mine.runs[0].id);
+  // Tools run in this file without a target file are "unscheduled" (warn), never red.
+  const overlap = rows.find((r) => r.tool === 'mock-overlap')!;
+  assert.equal(overlap.level, 'warn');
+  assert.deepEqual(overlap.issues.map((i) => i.code), ['unscheduled']);
+  // Nobody has refreshed anything for ten days: the scheduled tool is red, the unscheduled one still warns.
+  const later = await toolHealth(db, { scheduled: new Set(['mock-items']), now: new Date(Date.now() + 10 * 86_400_000) });
+  assert.equal(later.find((r) => r.tool === 'mock-items')!.level, 'red');
+  assert.deepEqual(later.find((r) => r.tool === 'mock-items')!.issues.map((i) => i.code), ['stale']);
+  assert.equal(later.find((r) => r.tool === 'mock-overlap')!.level, 'warn');
+  // Unknown schedule (no set given): no unscheduled warnings at all.
+  assert.ok((await toolHealth(db)).every((r) => !r.issues.some((i) => i.code === 'unscheduled')));
+});
+
 test('scenario: a list whose items carry stale values is named field by field', async () => {
   const { validateTarget } = await import('../../src/worker/target.js');
   const stale = await startMockApi('v1', { stale_list: true });

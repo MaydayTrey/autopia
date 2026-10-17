@@ -308,7 +308,7 @@ export async function renderToolDocs(db: Db, toolName: string, versionId?: numbe
   if (sheetStale) lines.push('', staleBanner);
   if (k.run_id) {
     const prev = await previousRunClaimCount(db, k.version.id, k.run_id).catch(() => null);
-    if (prev && coverageDropped(allClaims.length, prev.claims)) lines.push('', `> **Coverage dropped:** run #${k.run_id} kept ${allClaims.length} claims; the previous successful run #${prev.runId} had ${prev.claims}. Most of this sheet is missing, not disproved: the absent behaviors were not re-checked.`);
+    if (prev && coverageDropped(allClaims.length, prev.claims)) lines.push('', `> **Coverage dropped:** run #${k.run_id} kept ${allClaims.length} claims; the best of the previous runs, #${prev.runId}, had ${prev.claims}. Most of this sheet is missing, not disproved: the absent behaviors were not re-checked.`);
   }
   if (k.tier === 'contributor') {
     const who = [...new Set(claims.map((c) => c.verified_by))].join(', ') || 'a contributor';

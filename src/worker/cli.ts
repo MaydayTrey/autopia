@@ -27,11 +27,12 @@ import { extractEndpoints, fetchSpecText, parseSpecText } from './spec.js';
 import { loadTarget, selectEndpoints } from './target.js';
 import { latestClaimsForVersion } from './diff.js';
 import { loadEnv } from './env.js';
-import { readdir, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { buildBundle, scrubBundle } from './contribute.js';
 import path from 'node:path';
 import { renderToolDocs } from '../db/docs.js';
 import { CALL_LOG_DAYS, pruneCalls, pruneRuns } from '../db/retention.js';
+import { formatHealth, toolHealth } from '../db/health.js';
 import { createKey, listKeys, revokeKey, usageSummary } from '../db/keys.js';
 import { acceptedTargets, listRequests } from '../db/requests.js';
 import { processPendingRequests } from './requests-runner.js';
@@ -197,14 +198,21 @@ async function main() {
         rows.push(`${r.name.padEnd(26)} request #${String(r.id).padEnd(3)} ${r.status.toUpperCase().padEnd(12)} ${r.note}`);
       }
       // 2. file targets, then previously accepted user targets, as one list
+      // Scheduled = refreshed by this job: every target FILE (by file name, before loading, so a file that fails
+      // to load still counts) and every accepted user request.
+      const scheduled = new Set<string>(files.map((f) => path.basename(f, '.json')));
+      const accepted = await acceptedTargets(db);
+      for (const t of accepted) scheduled.add(t.name);
+      const failedTargets: { label: string; error: string }[] = [];
       const sources: { label: string; load: () => Promise<TargetConfig> }[] = [
         ...files.map((f) => ({ label: f, load: () => loadTarget(path.join(dir, f)) })),
-        ...(await acceptedTargets(db)).map((t) => ({ label: `${t.name} (requested)`, load: async () => t })),
+        ...accepted.map((t) => ({ label: `${t.name} (requested)`, load: async () => t })),
       ];
       for (const src of sources) {
         const f = src.label;
         try {
           const target = await src.load();
+          scheduled.add(target.name);
           // Convention: targets/<tool name>.json, so a caller can guess the tool name from the file.
           if (f.endsWith('.json') && path.basename(f, '.json') !== target.name) log.warn('run-all', `${f} defines tool "${target.name}"; rename the file to ${target.name}.json so the name is guessable`);
           const s = await runPipeline(db, target, { llm, reproduce: values.reproduce });
@@ -212,6 +220,7 @@ async function main() {
           rows.push(`${s.toolName.padEnd(26)} run #${String(s.testRunId).padEnd(4)} ${s.isNewVersion ? 'NEW VERSION ' : 'same version'}  trials ${String(s.trials).padStart(4)}  verified ${String(s.verified.length).padStart(4)}  rejected ${String(s.rejected.length).padStart(3)}  divergences ${String(s.divergences).padStart(3)}${diff}`);
         } catch (e) {
           failed++;
+          failedTargets.push({ label: f, error: (e as Error).message });
           rows.push(`${f.padEnd(26)} FAILED: ${(e as Error).message}`);
           log.error('run-all', `${f}: ${(e as Error).message}`);
         }
@@ -224,7 +233,43 @@ async function main() {
         out(`  prune (keep ${values['prune-days']} days${values['dry-run'] ? ', dry run' : ''}): ${p.runsDeleted} run(s), ${p.claimsDeleted} claims, ${p.trialsDeleted} trials${p.runIds.length ? ` [runs ${p.runIds.join(',')}]` : ''}`);
         if (!values['dry-run']) out(`  call log: ${await pruneCalls(db)} record(s) older than ${CALL_LOG_DAYS} days deleted`);
       }
-      if (failed) process.exitCode = 1;
+      // HEALTH: what the maintainer should know. Red fails the workflow (an email); a single failed
+      // night, an unscheduled tool or a tool that never produced claims only warn.
+      const health = await toolHealth(db, { scheduled });
+      out('');
+      for (const line of formatHealth(health)) out(line);
+      let red = health.some((h) => h.level === 'red');
+      // A target that failed before a tool row existed (bad file, missing env var, spec fetch) is invisible
+      // to the per-tool view; name it here, and it is red: nothing stands in for it.
+      for (const ft of failedTargets) {
+        const name = ft.label.replace(/\.json$/, '').replace(/ \(requested\)$/, '');
+        if (!health.some((h) => h.tool === name)) {
+          out(`  RED  ${name.padEnd(26)} unloadable: failed before a tool row existed (file, env var or spec fetch): ${ft.error.slice(0, 100)}`);
+          red = true;
+        }
+      }
+      if (failed) out(`  (${failed} target(s) failed this run: ${failedTargets.map((t) => t.label).join(', ')}; a tool with standing claims is not red until it fails 3 nights in a row or loses its claims)`);
+      if (red) process.exitCode = 1;
+      break;
+    }
+    case 'health': {
+      // health [targets-dir]: per-tool state of the nightly refresh (stale, coverage dropped, failing, never produced, unscheduled). Exit 1 on red.
+      const db = await getDb();
+      const dir = args[0] ?? 'targets';
+      const scheduled = new Set<string>();
+      for (const f of (await readdir(dir).catch(() => [] as string[])).filter((f) => f.endsWith('.json'))) {
+        scheduled.add(path.basename(f, '.json'));
+        try {
+          scheduled.add(JSON.parse(await readFile(path.join(dir, f), 'utf8')).name);
+        } catch {
+          /* a broken target file is reported by run-all as unloadable */
+        }
+      }
+      for (const t of await acceptedTargets(db)) scheduled.add(t.name);
+      const rows = await toolHealth(db, { scheduled: scheduled.size ? scheduled : undefined });
+      for (const line of formatHealth(rows)) out(line);
+      for (const r of rows.filter((r) => r.level === 'ok')) out(`  ok   ${r.tool.padEnd(26)} ${r.lastClaimRun ? `${r.lastClaimRun.claims} claims, run #${r.lastClaimRun.id}` : ''}`);
+      if (rows.some((r) => r.level === 'red')) process.exitCode = 1;
       break;
     }
     case 'requests': {
