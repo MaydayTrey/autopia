@@ -27,7 +27,7 @@ export interface TargetConfig {
   /** Replace the spec's declared server with `server` (e.g. a regional mirror that serves the same API). */
   override_server?: boolean;
   /** Scenario battery settings. pagination: { pages, page_size } (defaults 4 and 5) or false; conditional: false skips the ETag / rate-limit scenario. */
-  scenarios?: { pagination?: { pages?: number; page_size?: number } | false; conditional?: false; filters?: { page_size?: number; max_filters?: number } | false };
+  scenarios?: { pagination?: { pages?: number; page_size?: number } | false; conditional?: false; filters?: { page_size?: number; max_filters?: number } | false; list_detail?: false };
 }
 
 /** Minimum spacing for an endpoint label ("GET /path"): the path's override if any, else the target default. */

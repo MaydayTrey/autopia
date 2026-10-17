@@ -16,6 +16,7 @@ import { endpointLabel, type EndpointSpec } from '../spec.js';
 import type { TargetConfig } from '../target.js';
 import { runConditionalScenario } from './conditional.js';
 import { filterConfig, filterParams, runFilterScenario } from './filters.js';
+import { detailEndpointFor, runListDetailScenario } from './listdetail.js';
 import { paginationConfig, pagingParams, runPaginationScenario, SCENARIO_VERSION } from './pagination.js';
 
 export { SCENARIO_VERSION };
@@ -54,7 +55,7 @@ export function workingEndpoints(endpoints: EndpointSpec[], trials: Trial[]): En
   });
 }
 
-export async function runScenarios(db: Db, testRunId: number, endpoints: EndpointSpec[], target: TargetConfig, batteryTrials: Trial[], opts: ExerciseOptions): Promise<ScenariosResult> {
+export async function runScenarios(db: Db, testRunId: number, endpoints: EndpointSpec[], target: TargetConfig, batteryTrials: Trial[], opts: ExerciseOptions, allEndpoints: EndpointSpec[] = endpoints): Promise<ScenariosResult> {
   const out: ScenariosResult = { trials: [], claims: [], requests: 0, endpoints: [] };
   const ran = new Set<string>();
   const take = (ep: EndpointSpec, r: { trials: Trial[]; claims: CandidateClaim[]; requests: number }) => {
@@ -77,6 +78,20 @@ export async function runScenarios(db: Db, testRunId: number, endpoints: Endpoin
       } catch (e) {
         // A scenario that breaks must not take the run down with it; the battery's claims stand.
         log.warn('scenario', `${endpointLabel(ep)}: pagination scenario failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  // Scenario 2: list vs detail, on list endpoints whose spec has a detail sibling (list path + one template segment).
+  if (target.scenarios?.list_detail === false) log.info('scenario', 'list/detail scenario disabled by the target');
+  else {
+    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => detailEndpointFor(ep, allEndpoints)).slice(0, MAX_SCENARIO_ENDPOINTS);
+    if (candidates.length) log.info('scenario', `list vs detail on ${candidates.length} endpoint(s): one page + two detail reads each`);
+    for (const ep of candidates) {
+      try {
+        take(ep, await runListDetailScenario(db, testRunId, ep, allEndpoints, target, opts));
+      } catch (e) {
+        log.warn('scenario', `${endpointLabel(ep)}: list/detail scenario failed: ${(e as Error).message}`);
       }
     }
   }

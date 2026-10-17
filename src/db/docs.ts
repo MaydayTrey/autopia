@@ -12,7 +12,7 @@
  * Every line ends with the trial ids that back it.
  */
 import type { Db } from './client.js';
-import { listTools, matchEndpoint, toolKnowledge, type ClaimView } from './queries.js';
+import { canonicalTool, listTools, matchEndpoint, toolKnowledge, type ClaimView } from './queries.js';
 import { memo } from './cache.js';
 
 /** Inline evidence: the first few trial ids, then a count. 38 ids on one line is noise at the moment of use; get_tool_knowledge has them all. */
@@ -224,7 +224,7 @@ async function coverageFooter(db: Db, tool: string, allEndpoints: string[]): Pro
     '',
     '## What this compendium covers',
     `- This API: ${allEndpoints.length} GET endpoint(s) probed (listed in this sheet). Any other path on this host is NOT covered; do not infer its behavior from these.`,
-    ...(variants.length ? [`- Same host, other variant(s): ${variants.join(', ')} (a different API version or configuration of the same service; this sheet is ${tool}, the default). Read one by passing its name as tool.`] : []),
+    ...(variants.length ? [`- Same host, other variant(s): ${variants.join(', ')} (a different API version or configuration of the same service; this sheet is ${tool}${canonicalTool([tool, ...variants]) === tool ? ', the default' : canonicalTool([tool, ...variants]) ? `; ${canonicalTool([tool, ...variants])} is the default` : ''}). Read one by passing its name as tool.`] : []),
     rest.length ? `- Other APIs: ${rest.length} (${hosts.join(', ')}). list_tools gives each with its hosts.` : '- Other APIs: none yet.',
     '- Not probed anywhere yet: write endpoints (POST/PUT/DELETE), request bodies, auth flows, hosts not listed above.',
     '- Fetch: get_tool_docs {tool, path?, brief?} for an endpoint; search_claims {query} for one question; get_tool_knowledge {tool, kind} for structured claims; get_divergences {tool}; request_target to ask for an uncovered public API (needs a key).',

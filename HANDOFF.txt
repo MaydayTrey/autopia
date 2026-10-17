@@ -282,7 +282,19 @@ sane API, so it needs no doc entry to compare against:
   a GitHub URL inside a JSON body posted to the compendium (FIXED 0.3.5:
   JSON string values are blanked before host matching) and the post hook
   then reported a 400 that never happened (same root cause).
-  NEXT: S2 list/detail, S5 sort contract. Search
+  S2 LIST vs DETAIL BUILT (same day, four-role loop): src/worker/scenarios/
+  listdetail.ts. Detail endpoint found in the FULL spec (pipeline now hands
+  runScenarios the un-narrowed endpoint list): list path + one template
+  segment, same server. Item field for the path param chosen by the param
+  name (number -> number; sha/ref -> sha; id -> id; name/login -> login),
+  confirmed by the detail's identity matching; values must be one plain
+  path segment. Two items (first/last of a page of 5); facts claimed only
+  when true for both: list_detail_fields (detail adds X / list alone has Y
+  / same top-level fields) and list_detail_values (shared scalars agree /
+  differ: names). LIVE GitHub (9 req): commits detail adds files, stats;
+  issues and releases need no second request; all shared scalars agree.
+  Mock detail now {id,name,kind,description}; quirk stale_list.
+  NEXT: S5 sort contract. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

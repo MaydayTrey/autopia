@@ -60,6 +60,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
 
   // 1-2. DISCOVER (then narrow to the target's include_paths, if any)
   const d = await discover(db, target);
+  const allEndpoints = d.parsed.endpoints; // the whole spec: scenarios look up sibling endpoints (list -> detail) here
   d.parsed = { ...d.parsed, endpoints: selectEndpoints(d.parsed.endpoints, target) };
   if (target.include_paths) log.info('discover', `include_paths: exercising ${d.parsed.endpoints.length} of the spec's endpoints`);
   const [run] = await db.insert(schema.testRuns).values({ toolVersionId: d.version.id, batteryHash: batteryHash(), status: 'running' }).returning();
@@ -69,7 +70,7 @@ export async function runPipeline(db: Db, target: TargetConfig, opts: PipelineOp
     // 3. EXERCISE (the probe battery)
     const battery: Trial[] = await exercise(db, run.id, d.parsed.endpoints, target, opts);
     // 3b. SCENARIOS: use the API the way a program does; invariants instead of spec comparisons.
-    const sc: ScenariosResult = opts.scenarios === false ? { trials: [], claims: [], requests: 0, endpoints: [] } : await runScenarios(db, run.id, d.parsed.endpoints, target, battery, opts);
+    const sc: ScenariosResult = opts.scenarios === false ? { trials: [], claims: [], requests: 0, endpoints: [] } : await runScenarios(db, run.id, d.parsed.endpoints, target, battery, opts, allEndpoints);
     const trials: Trial[] = [...battery, ...sc.trials];
     const trialsById = new Map(trials.map((t) => [t.id, t]));
 

@@ -66,8 +66,8 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   assert.ok(stored.some((c) => c.endpoint === 'GET /v1/items/{id}'));
   // Scenario battery: pagination completeness ran on the list endpoint; its claims are verified like any other.
   assert.equal(s.scenarios.endpoints.length, 2, JSON.stringify(s.scenarios)); // pagination on the list, conditional on both
-  // pagination 6 + conditional 4+4 + filters (unfiltered, kind, tag, tag again, kind+tag) 5 = 19
-  assert.ok(s.scenarios.requests >= 19 && s.scenarios.requests <= 21, `scenario requests ${s.scenarios.requests}`);
+  // pagination 6 + list/detail 3 + conditional 4+4 + filters (unfiltered, kind, tag, tag again, kind+tag) 5 = 22
+  assert.ok(s.scenarios.requests >= 22 && s.scenarios.requests <= 24, `scenario requests ${s.scenarios.requests}`);
   const scen = stored.filter((c) => c.source === 'scenario');
   const statements = JSON.stringify(scen.map((c) => [c.claimKey, c.statement]));
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once \(no id repeats across pages\), on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
@@ -77,6 +77,9 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_end:get_v1_items:-' && /ends within the walk: the last page of limit=5 is short/.test(c.statement)), statements);
   assert.ok(scen.filter((c) => /pagination_/.test(c.claimKey)).every((c) => c.kind === 'pagination'));
   assert.ok(scen.every((c) => c.verified && c.evidenceTrialIds.length >= 1));
+  // List vs detail: the detail adds description and omits q and tag; shared scalars agree.
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:list_detail_fields:get_v1_items:-' && /returns top-level fields the list items omit: description; the list items carry top-level fields the detail omits: q, tag \(two items, list and detail both HTTP 200\)/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:list_detail_values:get_v1_items:-' && /every field shared by the list item and its detail had the same value, nested contents included/.test(c.statement)), statements);
   // Filter composition: kind is honored, tag is silently ignored, and the pair shows tag ignored in combination too.
   assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:kind' && /is honored: every item on the first page matches on field "kind"/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:tag' && /has no visible effect: the first page is identical to the unfiltered one and none of its items has "tag" equal to that value \(HTTP 200, seen twice\)/.test(c.statement)), statements);
@@ -218,7 +221,7 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
   const { validateTarget } = await import('../../src/worker/target.js');
   const costly = await startMockApi('v1', { cost_304: true });
   try {
-    const t = validateTarget({ name: 'mock-costly-304', category: 'test', spec_url: costly.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false } });
+    const t = validateTarget({ name: 'mock-costly-304', category: 'test', spec_url: costly.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false } });
     const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
     const cost = s.verified.find((c) => c.claimKey === 'scenario:conditional_cost:get_v1_items:-');
     assert.ok(cost, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
@@ -229,7 +232,7 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
   }
   const bare = await startMockApi('v1', { no_etag: true });
   try {
-    const t = validateTarget({ name: 'mock-no-validators', category: 'test', spec_url: bare.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false } });
+    const t = validateTarget({ name: 'mock-no-validators', category: 'test', spec_url: bare.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false } });
     const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
     const none = s.verified.find((c) => c.claimKey === 'scenario:conditional_none:get_v1_items:-');
     assert.ok(none, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
@@ -239,5 +242,20 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
     assert.equal(s.scenarios.requests, 4, 'no ETag: fresh + repeat per endpoint');
   } finally {
     await bare.close();
+  }
+});
+
+test('scenario: a list whose items carry stale values is named field by field', async () => {
+  const { validateTarget } = await import('../../src/worker/target.js');
+  const stale = await startMockApi('v1', { stale_list: true });
+  try {
+    const t = validateTarget({ name: 'mock-stale-list', category: 'test', spec_url: stale.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, conditional: false, filters: false } });
+    const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
+    const v = s.verified.find((c) => c.claimKey === 'scenario:list_detail_values:get_v1_items:-');
+    assert.ok(v, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
+    assert.match(v!.statement, /Fields whose value or type differs between a list item and its detail read seconds later: name \(on both items, list and detail both HTTP 200\)/);
+    assert.equal(s.scenarios.requests, 3, 'one page + two detail reads');
+  } finally {
+    await stale.close();
   }
 });

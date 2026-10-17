@@ -128,8 +128,19 @@ Statements name no volatile numbers, so they stay stable across nightly runs. Di
 counted, that search has its own pool of 30 and no validators, and that every other endpoint
 honors ETags with free 304s.
 
-Next scenarios, in order: filter composition, list vs detail consistency, sort contract,
-encoding and boundaries. All read-only, none needing an account; the write battery comes after.
+Scenario 4, **filter composition**, runs on list endpoints that have filter parameters with
+known-good values in the target: one unfiltered page, one page per filter, one per pair. A
+filter is "honored" when every returned item matches the field of the same name; a mismatch is
+never read as "not honored" (GitHub's commits `sha` is a start ref, not an item predicate) but
+as "no visible effect" or "does not select by that field"; combinations are checked for
+containment against complete single results and for field agreement only on filters whose own
+check passed. Scenario 2, **list vs detail**, finds the detail endpoint in the spec (list path
+plus one template segment), reads two items' details and says which fields the detail adds,
+which the list alone carries, and whether shared scalar values agree, so a program knows when a
+second request is needed. Disable with `scenarios.filters: false` / `scenarios.list_detail: false`.
+
+Next scenarios: sort contract, encoding and boundaries. All read-only, none needing an account;
+the write battery comes after.
 
 ## Quick start
 

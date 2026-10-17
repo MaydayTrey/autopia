@@ -131,7 +131,7 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     // A 7-item dataset paged by `page`; the page size is min(limit, 3) (a planted clamp). A Link
     // header offers rel="next" while more remain. With the page_overlap quirk every page after the
     // first starts one item early, so consecutive pages share an item (a real-world ordering bug).
-    const ALL = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}`, q: q[0] ?? null, kind: (i + 1) % 2 ? 'odd' : 'even', tag: 'none' }));
+    const ALL = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}${quirks.stale_list ? ' (stale)' : ''}`, q: q[0] ?? null, kind: (i + 1) % 2 ? 'odd' : 'even', tag: 'none' }));
     const DATASET = kind ? ALL.filter((it) => it.kind === kind) : ALL; // `tag` is deliberately ignored
     const size = Math.min(limit, 3);
     const pageNo = page ? Math.max(1, Math.floor(Number(page)) || 1) : 1;
@@ -151,7 +151,8 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     const id = Number(m[1]);
     if (!Number.isInteger(id)) return err('invalid_id', 'id must be an integer');
     if (id < 1) return err('not_found', 'no such item', 404);
-    return ok({ id, name: `item ${id}` });
+    // Detail: adds `description`, omits the list's `q` and `tag`.
+    return ok({ id, name: `item ${id}`, kind: id % 2 ? 'odd' : 'even', description: `details for item ${id}` });
   }
 
   res.writeHead(404, { 'content-type': 'text/plain' });
@@ -163,6 +164,8 @@ export interface MockQuirks {
   page_overlap?: boolean;
   cost_304?: boolean;
   no_etag?: boolean;
+  /** List items carry a stale name (detail: "item N", list: "item N (stale)"). */
+  stale_list?: boolean;
 }
 
 /** Per-server state: the rate-limit counter. */
