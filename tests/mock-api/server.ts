@@ -51,6 +51,8 @@ function spec(serverUrl: string, version: string) {
             { name: 'page', in: 'query', schema: { type: 'integer' } },
             { name: 'sort', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'] } },
             { name: 'kind', in: 'query', schema: { type: 'string', enum: ['odd', 'even'] } },
+            { name: 'order_by', in: 'query', schema: { type: 'string', enum: ['id', 'name'] } },
+            { name: 'direction', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'] } },
             { name: 'tag', in: 'query', schema: { type: 'string' } },
             { name: 'api_key', in: 'query', schema: { type: 'string' } },
           ],
@@ -68,7 +70,7 @@ function spec(serverUrl: string, version: string) {
   };
 }
 
-const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'kind', 'tag', 'api_key']);
+const KNOWN = new Set(['q', 'limit', 'page', 'sort', 'kind', 'tag', 'order_by', 'direction', 'api_key']);
 
 function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerResponse, specJson: () => string, quirks: MockQuirks = {}, state: MockState = { counted: 0 }) {
   const u = new URL(req.url ?? '/', 'http://x');
@@ -128,11 +130,21 @@ function handle(profile: Profile, req: http.IncomingMessage, res: http.ServerRes
     if (sort !== null && sort !== '' && sort !== 'asc' && sort !== 'desc') return err('invalid_sort', 'sort must be asc or desc');
     const kind = u.searchParams.get('kind');
     if (kind !== null && kind !== '' && kind !== 'odd' && kind !== 'even') return err('invalid_kind', 'kind must be odd or even');
+    const orderBy = u.searchParams.get('order_by');
+    if (orderBy !== null && orderBy !== '' && orderBy !== 'id' && orderBy !== 'name') return err('invalid_order_by', 'order_by must be id or name');
+    const direction = u.searchParams.get('direction');
+    if (direction !== null && direction !== '' && direction !== 'asc' && direction !== 'desc') return err('invalid_direction', 'direction must be asc or desc');
     // A 7-item dataset paged by `page`; the page size is min(limit, 3) (a planted clamp). A Link
     // header offers rel="next" while more remain. With the page_overlap quirk every page after the
     // first starts one item early, so consecutive pages share an item (a real-world ordering bug).
     const ALL = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `item ${i + 1}${quirks.stale_list ? ' (stale)' : ''}`, q: q[0] ?? null, kind: (i + 1) % 2 ? 'odd' : 'even', tag: 'none' }));
-    const DATASET = kind ? ALL.filter((it) => it.kind === kind) : ALL; // `tag` is deliberately ignored
+    let DATASET = kind ? ALL.filter((it) => it.kind === kind) : ALL; // `tag` is deliberately ignored
+    // order_by (id | name) and direction (asc | desc) are honored unless the ignore_sort quirk is on; names sort with numeric collation.
+    if (!quirks.ignore_sort && (orderBy || direction)) {
+      const field = (orderBy || 'id') as 'id' | 'name';
+      const sign = direction === 'desc' ? -1 : 1;
+      DATASET = [...DATASET].sort((a, b) => sign * (field === 'id' ? a.id - b.id : a.name.localeCompare(b.name, 'en', { numeric: true })));
+    }
     const size = Math.min(limit, 3);
     const pageNo = page ? Math.max(1, Math.floor(Number(page)) || 1) : 1;
     const start = quirks.page_overlap ? (pageNo - 1) * Math.max(1, size - 1) : (pageNo - 1) * size;
@@ -166,6 +178,8 @@ export interface MockQuirks {
   no_etag?: boolean;
   /** List items carry a stale name (detail: "item N", list: "item N (stale)"). */
   stale_list?: boolean;
+  /** order_by and direction are accepted but ignored (the list stays in id order). */
+  ignore_sort?: boolean;
 }
 
 /** Per-server state: the rate-limit counter. */

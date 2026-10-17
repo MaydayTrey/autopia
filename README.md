@@ -139,10 +139,23 @@ plus one template segment), reads two items' details and says which fields the d
 which the list alone carries, and whether shared scalar values agree, so a program knows when a
 second request is needed. Disable with `scenarios.filters: false` / `scenarios.list_detail: false`.
 
-Next scenarios: sort contract, encoding and boundaries. All read-only, none needing an account;
-the write battery comes after.
+Scenario 5, **sort contract**, runs on list endpoints with a sort parameter: one unsorted page,
+then one page per sort key (the target's value plus the spec's enum, at most three) per
+direction, plus one repeat. It says whether each page is actually ordered by the field the key
+names, in the stated direction; which sorted page the default order equals; whether the two
+directions differ; and whether the same sort returns the same order twice. On GitHub issues it
+found that `sort=comments&direction=asc` does not return the page in ascending order of the
+items' `comments` field, while every other key and direction does. Disable with
+`scenarios.sort: false`.
+
+Next scenarios: encoding and boundaries. All read-only, none needing an account; the write
+battery comes after.
 
 ## Health (for the maintainer)
+
+`npm run autopia -- tool-delete <name> --yes` removes a dead tool and everything under it
+(versions, runs, trials, claims, diffs) in one transaction; use it for an API that turned out to
+be unreachable or was run once by hand and never scheduled.
 
 `npm run autopia -- health` prints one line per tool that needs attention: **red** when a
 scheduled tool's last claim-producing run is older than 3 days, when the latest run kept fewer

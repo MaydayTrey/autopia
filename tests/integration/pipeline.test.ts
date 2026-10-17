@@ -33,7 +33,7 @@ before(async () => {
   queries = await import('../../src/db/queries.js');
   const { validateTarget } = await import('../../src/worker/target.js');
   api = await startMockApi('v1');
-  target = validateTarget({ name: 'mock-items', category: 'test', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } }, optional_values: { '/v1/items': { kind: 'odd', tag: 'x' } } });
+  target = validateTarget({ name: 'mock-items', category: 'test', spec_url: api.specPath, baseline: { '/v1/items': { q: 'hello' } }, optional_values: { '/v1/items': { kind: 'odd', tag: 'x', order_by: 'name', direction: 'desc' } } });
   db = await client.getDb();
 });
 
@@ -66,8 +66,8 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   assert.ok(stored.some((c) => c.endpoint === 'GET /v1/items/{id}'));
   // Scenario battery: pagination completeness ran on the list endpoint; its claims are verified like any other.
   assert.equal(s.scenarios.endpoints.length, 2, JSON.stringify(s.scenarios)); // pagination on the list, conditional on both
-  // pagination 6 + list/detail 3 + conditional 4+4 + filters (unfiltered, kind, tag, tag again, kind+tag) 5 = 22
-  assert.ok(s.scenarios.requests >= 22 && s.scenarios.requests <= 24, `scenario requests ${s.scenarios.requests}`);
+  // pagination 6 + list/detail 3 + sort (unsorted + 2 keys x 2 directions + 1 repeat) 6 + conditional 4+4 + filters 5 = 28
+  assert.ok(s.scenarios.requests >= 28 && s.scenarios.requests <= 30, `scenario requests ${s.scenarios.requests}`);
   const scen = stored.filter((c) => c.source === 'scenario');
   const statements = JSON.stringify(scen.map((c) => [c.claimKey, c.statement]));
   assert.ok(scen.some((c) => c.claimKey === 'scenario:pagination_unique:get_v1_items:-' && /returns each item once \(no id repeats across pages\), on both a numbered walk and a Link-header walk/.test(c.statement)), statements);
@@ -80,6 +80,11 @@ test('run 1: finds the planted divergences, stores only verified claims', async 
   // List vs detail: the detail adds description and omits q and tag; shared scalars agree.
   assert.ok(scen.some((c) => c.claimKey === 'scenario:list_detail_fields:get_v1_items:-' && /returns top-level fields the list items omit: description; the list items carry top-level fields the detail omits: q, tag \(two items, list and detail both HTTP 200\)/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:list_detail_values:get_v1_items:-' && /every field shared by the list item and its detail had the same value, nested contents included/.test(c.statement)), statements);
+  // Sort contract: both keys honored in both directions, the default order named, the sort stable.
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:sort:get_v1_items:name_desc' && /order_by=name&direction=desc orders the page by "name" descending \(HTTP 200\)/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:sort:get_v1_items:id_asc' && /orders the page by "id" ascending/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:sort_default:get_v1_items:-' && /The default order equals .*order_by=id&direction=asc/.test(c.statement)), statements);
+  assert.ok(scen.some((c) => c.claimKey === 'scenario:sort_stable:get_v1_items:-' && /same ids in the same order/.test(c.statement)), statements);
   // Filter composition: kind is honored, tag is silently ignored, and the pair shows tag ignored in combination too.
   assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:kind' && /is honored: every item on the first page matches on field "kind"/.test(c.statement)), statements);
   assert.ok(scen.some((c) => c.claimKey === 'scenario:filter:get_v1_items:tag' && /has no visible effect: the first page is identical to the unfiltered one and none of its items has "tag" equal to that value \(HTTP 200, seen twice\)/.test(c.statement)), statements);
@@ -221,7 +226,7 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
   const { validateTarget } = await import('../../src/worker/target.js');
   const costly = await startMockApi('v1', { cost_304: true });
   try {
-    const t = validateTarget({ name: 'mock-costly-304', category: 'test', spec_url: costly.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false } });
+    const t = validateTarget({ name: 'mock-costly-304', category: 'test', spec_url: costly.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false, sort: false } });
     const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
     const cost = s.verified.find((c) => c.claimKey === 'scenario:conditional_cost:get_v1_items:-');
     assert.ok(cost, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
@@ -232,7 +237,7 @@ test('scenario: a 304 that costs quota, and an API with no validators at all, ar
   }
   const bare = await startMockApi('v1', { no_etag: true });
   try {
-    const t = validateTarget({ name: 'mock-no-validators', category: 'test', spec_url: bare.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false } });
+    const t = validateTarget({ name: 'mock-no-validators', category: 'test', spec_url: bare.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, list_detail: false, sort: false } });
     const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
     const none = s.verified.find((c) => c.claimKey === 'scenario:conditional_none:get_v1_items:-');
     assert.ok(none, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
@@ -293,7 +298,7 @@ test('scenario: a list whose items carry stale values is named field by field', 
   const { validateTarget } = await import('../../src/worker/target.js');
   const stale = await startMockApi('v1', { stale_list: true });
   try {
-    const t = validateTarget({ name: 'mock-stale-list', category: 'test', spec_url: stale.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, conditional: false, filters: false } });
+    const t = validateTarget({ name: 'mock-stale-list', category: 'test', spec_url: stale.specPath, baseline: { '/v1/items': { q: 'hello' } }, scenarios: { pagination: false, conditional: false, filters: false, sort: false } });
     const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
     const v = s.verified.find((c) => c.claimKey === 'scenario:list_detail_values:get_v1_items:-');
     assert.ok(v, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
@@ -302,4 +307,31 @@ test('scenario: a list whose items carry stale values is named field by field', 
   } finally {
     await stale.close();
   }
+});
+
+test('scenario: a sort key that is accepted but ignored is named, seen twice; tool-delete removes everything under a tool', async () => {
+  const { validateTarget } = await import('../../src/worker/target.js');
+  const deaf = await startMockApi('v1', { ignore_sort: true });
+  try {
+    const t = validateTarget({ name: 'mock-deaf-sort', category: 'test', spec_url: deaf.specPath, baseline: { '/v1/items': { q: 'hello' } }, optional_values: { '/v1/items': { order_by: 'name', direction: 'desc' } }, scenarios: { pagination: false, conditional: false, filters: false, list_detail: false } });
+    const s = await pipeline.runPipeline(db, t, { ...fast, llm: null });
+    const bad = s.verified.find((c) => c.claimKey === 'scenario:sort:get_v1_items:name_desc');
+    assert.ok(bad, JSON.stringify(s.verified.filter((c) => c.source === 'scenario').map((c) => c.statement)));
+    assert.match(bad!.statement, /does NOT order the page by "name" descending, and the page is identical to the unsorted one \(HTTP 200, seen twice\)\. The other direction, order_by=name&direction=asc, IS ordered by "name"\./);
+    assert.ok(s.verified.some((c) => c.claimKey === 'scenario:sort_direction:get_v1_items:name' && /direction parameter has no effect on this key/.test(c.statement)), 'asc and desc returned the same page');
+    // id asc happens to equal the ignored (id-ordered) page, so it reads as honored; id desc does not.
+    assert.ok(s.verified.some((c) => c.claimKey === 'scenario:sort:get_v1_items:id_asc' && /orders the page by "id" ascending/.test(c.statement)));
+  } finally {
+    await deaf.close();
+  }
+  // tool-delete: the dead tool and everything under it go; nothing else does.
+  const { deleteTool } = await import('../../src/db/queries.js');
+  const before = (await queries.listTools(db)).length;
+  await assert.rejects(() => deleteTool(db, 'mock-deaf-sort'), /verified claim\(s\); pass --force/, 'a tool with claims is not deleted without force');
+  const gone = await deleteTool(db, 'mock-deaf-sort', { force: true });
+  assert.ok(gone && gone.versions === 1 && gone.runs === 1 && gone.trials > 0 && gone.claims > 0, JSON.stringify(gone));
+  assert.equal((await queries.listTools(db)).length, before - 1);
+  assert.equal(await queries.resolveTool(db, 'mock-deaf-sort'), null);
+  assert.equal(await deleteTool(db, 'mock-deaf-sort', { force: true }), null, 'deleting twice is a no-op');
+  assert.ok((await queries.listTools(db)).some((t) => t.name === 'mock-items'), 'other tools untouched');
 });

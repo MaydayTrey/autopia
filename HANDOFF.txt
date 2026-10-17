@@ -332,8 +332,43 @@ sane API, so it needs no doc entry to compare against:
   KNOWN GAP: a spec version change that legitimately drops endpoints reads
   as coverage_dropped for one night (acceptable; detail could say "new spec
   version").
-  NEXT: S5 sort contract; search_claims as scoped Markdown; GitHub detail
-  endpoints into the target. Search
+  HOUSEKEEPING 2026-10-17 (Trey's call): jikan deleted from the hosted DB
+  (new CLI tool-delete <name> --yes [--force], transactional; deleteTool in
+  queries.ts; requests that produced the tool are marked rejected so the
+  worker does not recreate it). binance-spot-public target NOT added: QA
+  confirmed api.binance.com answers HTTP 451 to US addresses (this machine,
+  Render ohio, GitHub runners), so a nightly target would only store
+  "baseline fails" lines. Tool #9 keeps its 8 claims and stays an
+  unscheduled WARN; options: delete it (tool-delete binance-spot-public
+  --yes --force) or run it from a non-US host. Trey decides.
+  S5 SORT CONTRACT BUILT (same day, four-role loop): src/worker/scenarios/
+  sorting.ts. sortParams prefers the sort-like param the target names, then
+  one whose enum is not only directions; keys = target value + enum (max
+  3); directions from the direction enum (desc, asc). Claims (kind
+  'undocumented', keys scenario:sort:<ep>:<key_dir>, sort_default,
+  sort_direction, sort_stable): ordered by field F asc/desc; "does NOT
+  order by F" only when seen twice and worded as "sorts by something else
+  or is ignored"; structural facts only when no field matches; default
+  order names every sorted page equal to the unsorted one; same page for
+  both directions; stability of the first sorted page. Mock: order_by
+  (id|name) + direction honored, numeric collation; quirk ignore_sort.
+  LIVE GitHub issues (10 req): default = created desc; created/updated
+  both directions and comments desc ordered; comments ASC is NOT ordered by
+  the items' comments field (raw: 0,0,...,1,0,... with #7210 in the
+  middle; verified by hand), probably a pull request whose review comments
+  count toward the sort but not toward "comments". Search produced nothing
+  (1-result baseline query: widen it).
+  REVIEW (PO+customer): a failed direction now names its ordered sibling;
+  default ties say "indistinguishable on this page, the default is one of
+  them"; stability reads "reproducible between reads; later pages can
+  shift"; tool-delete refuses a tool with claims unless --force. WISHED
+  (customer): cross-page ordering for the sort the agent will walk with
+  (page N+1's first key >= page N's last, no duplicates across pages): a
+  natural merge of S1 and S5, not built. PO: three failing nights should
+  auto-pause a target, not only report (not built).
+  NEXT: widen the GitHub search baseline query (one line); search_claims as
+  scoped Markdown; GitHub detail endpoints into the target; encoding/
+  boundary scenario. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

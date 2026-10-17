@@ -252,6 +252,38 @@ export async function previousRunClaimCount(db: Db, toolVersionId: number, befor
   return best;
 }
 
+/**
+ * Remove a tool and everything that hangs off it: diffs, claims, trials, runs, versions. Requests
+ * that pointed at one of its runs keep the request but lose the run link. Returns what went.
+ */
+export async function deleteTool(db: Db, name: string, opts: { force?: boolean } = {}): Promise<{ versions: number; runs: number; trials: number; claims: number; diffs: number } | null> {
+  const tool = await resolveTool(db, name);
+  if (!tool) return null;
+  if (!opts.force) {
+    // Verified claims are the asset: a tool that has any is not deleted without --force.
+    const versionIds = (await db.select({ id: schema.toolVersions.id }).from(schema.toolVersions).where(eq(schema.toolVersions.toolId, tool.id))).map((v) => v.id);
+    const [{ n }] = versionIds.length ? await db.select({ n: sql<number>`count(*)::int` }).from(schema.claims).where(inArray(schema.claims.toolVersionId, versionIds)) : [{ n: 0 }];
+    if (Number(n) > 0) throw new Error(`"${name}" has ${n} verified claim(s); pass --force to delete them with the tool`);
+  }
+  return db.transaction(async (db) => deleteToolRows(db, tool.id));
+}
+
+async function deleteToolRows(db: Db, toolId: number): Promise<{ versions: number; runs: number; trials: number; claims: number; diffs: number }> {
+  const tool = { id: toolId };
+  const versionIds = (await db.select({ id: schema.toolVersions.id }).from(schema.toolVersions).where(eq(schema.toolVersions.toolId, tool.id))).map((v) => v.id);
+  const runIds = versionIds.length ? (await db.select({ id: schema.testRuns.id }).from(schema.testRuns).where(inArray(schema.testRuns.toolVersionId, versionIds))).map((r) => r.id) : [];
+  const diffs = (await db.delete(schema.claimDiffs).where(eq(schema.claimDiffs.toolId, tool.id)).returning({ id: schema.claimDiffs.id })).length;
+  const claims = versionIds.length ? (await db.delete(schema.claims).where(inArray(schema.claims.toolVersionId, versionIds)).returning({ id: schema.claims.id })).length : 0;
+  const trials = runIds.length ? (await db.delete(schema.trials).where(inArray(schema.trials.testRunId, runIds)).returning({ id: schema.trials.id })).length : 0;
+  // A user request that produced this tool must not recreate it on the next pass: mark it rejected with the reason.
+  if (runIds.length) await db.update(schema.targetRequests).set({ testRunId: null, status: 'rejected', note: 'tool deleted by the operator' }).where(inArray(schema.targetRequests.testRunId, runIds));
+  await db.update(schema.targetRequests).set({ status: 'rejected', note: 'tool deleted by the operator' }).where(and(eq(schema.targetRequests.name, (await db.select({ name: schema.tools.name }).from(schema.tools).where(eq(schema.tools.id, toolId)))[0]?.name ?? ''), inArray(schema.targetRequests.status, ['done', 'pending', 'running'])));
+  const runs = runIds.length ? (await db.delete(schema.testRuns).where(inArray(schema.testRuns.id, runIds)).returning({ id: schema.testRuns.id })).length : 0;
+  const versions = versionIds.length ? (await db.delete(schema.toolVersions).where(inArray(schema.toolVersions.id, versionIds)).returning({ id: schema.toolVersions.id })).length : 0;
+  await db.delete(schema.tools).where(eq(schema.tools.id, tool.id));
+  return { versions, runs, trials, claims, diffs };
+}
+
 export async function listVersions(db: Db, toolId: number): Promise<ToolVersion[]> {
   return db.select().from(schema.toolVersions).where(eq(schema.toolVersions.toolId, toolId)).orderBy(desc(schema.toolVersions.id));
 }

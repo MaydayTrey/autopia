@@ -17,6 +17,7 @@ import type { TargetConfig } from '../target.js';
 import { runConditionalScenario } from './conditional.js';
 import { filterConfig, filterParams, runFilterScenario } from './filters.js';
 import { detailEndpointFor, runListDetailScenario } from './listdetail.js';
+import { runSortScenario, sortParams } from './sorting.js';
 import { paginationConfig, pagingParams, runPaginationScenario, SCENARIO_VERSION } from './pagination.js';
 
 export { SCENARIO_VERSION };
@@ -107,6 +108,20 @@ export async function runScenarios(db: Db, testRunId: number, endpoints: Endpoin
         take(ep, await runFilterScenario(db, testRunId, ep, target, flt, opts));
       } catch (e) {
         log.warn('scenario', `${endpointLabel(ep)}: filter scenario failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  // Scenario 5: sort contract, on list endpoints with a sort parameter and a value to try.
+  if (target.scenarios?.sort === false) log.info('scenario', 'sort scenario disabled by the target');
+  else {
+    const candidates = listEndpoints(endpoints, batteryTrials).filter((ep) => sortParams(ep, target)).slice(0, MAX_SCENARIO_ENDPOINTS);
+    if (candidates.length) log.info('scenario', `sort contract on ${candidates.length} endpoint(s)`);
+    for (const ep of candidates) {
+      try {
+        take(ep, await runSortScenario(db, testRunId, ep, target, opts));
+      } catch (e) {
+        log.warn('scenario', `${endpointLabel(ep)}: sort scenario failed: ${(e as Error).message}`);
       }
     }
   }

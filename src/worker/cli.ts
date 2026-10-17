@@ -17,7 +17,7 @@
  */
 import { parseArgs } from 'node:util';
 import { closeDb, getDb } from '../db/client.js';
-import { listTools, listVersions, resolveTool, runsForTool, searchClaims, toolKnowledge, trialById, versionDiff } from '../db/queries.js';
+import { deleteTool, listTools, listVersions, resolveTool, runsForTool, searchClaims, toolKnowledge, trialById, versionDiff } from '../db/queries.js';
 import { adapterFromEnv } from '../llm/anthropic.js';
 import { buildUrl } from './http.js';
 import { planAll } from './exercise.js';
@@ -50,6 +50,7 @@ const { values, positionals } = parseArgs({
     'max-trials': { type: 'string' },
     'prune-days': { type: 'string' },
     'no-scenarios': { type: 'boolean' },
+    force: { type: 'boolean' },
     'dry-run': { type: 'boolean', default: false },
     quota: { type: 'string' },
     days: { type: 'string' },
@@ -102,6 +103,16 @@ async function main() {
       const rows = await listTools(db);
       if (values.json) out(rows);
       else for (const r of rows) out(`#${r.id} ${r.name}  versions ${r.versions}  latest #${r.latest_version_id ?? '-'} (${r.latest_version_label ?? '-'})  verified claims ${r.verified_claims}  divergences ${r.divergences}`);
+      break;
+    }
+    case 'tool-delete': {
+      // tool-delete <name> --yes [--force]: remove a tool and all its versions, runs, trials and diffs; --force is required when it has verified claims.
+      const name = need(args[0], 'tool name');
+      if (!values.yes) throw new Error(`refusing to delete "${name}" without --yes (this removes every run, trial and claim of the tool)`);
+      const db = await getDb();
+      const gone = await deleteTool(db, name, { force: !!values.force });
+      if (!gone) throw new Error(`no such tool: ${name}`);
+      out(`deleted tool "${name}": ${gone.versions} version(s), ${gone.runs} run(s), ${gone.trials} trials, ${gone.claims} claims, ${gone.diffs} diff rows (the hosted server's response cache forgets it within 10 minutes)`);
       break;
     }
     case 'versions': {
@@ -371,7 +382,7 @@ async function main() {
       break;
     }
     default:
-      out('usage: autopia <run|run-all|plan|tools|versions|runs|claims|docs|search|diff|trial|compare-runs> ...  (see src/worker/cli.ts)');
+      out('usage: autopia <run|run-all|plan|tools|tool-delete|health|versions|runs|claims|docs|search|diff|trial|compare-runs> ...  (see src/worker/cli.ts)');
       process.exitCode = 1;
   }
 }
