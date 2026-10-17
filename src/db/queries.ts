@@ -57,7 +57,7 @@ export async function siblingClaims(db: Db, toolId: number, category: string | n
     for (const c of cur?.claims ?? []) {
       const k = siblingKey(c.claimKey, c.source);
       if (!k) continue;
-      index.set(k, [...(index.get(k) ?? []), { tool: t.name, verdict: c.verdict, statement: c.statement }]);
+      index.set(k, [...(index.get(k) ?? []), { tool: t.name, verdict: c.verdict, statement: c.statement, endpoint: c.endpoint }]);
     }
   }
   return index;
@@ -66,6 +66,7 @@ export async function siblingClaims(db: Db, toolId: number, category: string | n
 export async function listTools(db: Db) {
   const tools = await db.select().from(schema.tools).orderBy(schema.tools.name);
   const out = [];
+  // A tool with no verified claims (never reachable, or not yet run) is not offered: an agent cannot use it.
   for (const t of tools) {
     const versions = await db.select().from(schema.toolVersions).where(eq(schema.toolVersions.toolId, t.id)).orderBy(desc(schema.toolVersions.id));
     const latest = versions[0];
@@ -85,7 +86,7 @@ export async function listTools(db: Db) {
       hosts: cur?.runId ? await runHosts(db, cur.runId) : [],
     });
   }
-  return out;
+  return out.filter((t) => t.verified_claims > 0);
 }
 
 export async function resolveTool(db: Db, name: string): Promise<Tool | null> {
@@ -175,6 +176,17 @@ export function matchEndpoint(path: string, endpoints: string[]): string | null 
   return best?.ep ?? null;
 }
 
+/**
+ * Among tools sharing a host and matching the same path, the base one: "github-rest" over
+ * "github-rest-2026-03-10" (a variant named as base + "-" + qualifier). The variant stays
+ * reachable by name and is listed on the base tool's sheet. Null when the names are unrelated.
+ */
+export function canonicalTool(names: string[]): string | null {
+  if (names.length < 2) return names[0] ?? null;
+  const base = [...names].sort((a, b) => a.length - b.length)[0];
+  return names.every((n) => n === base || n.startsWith(base + '-')) ? base : null;
+}
+
 /** Among tools sharing a host, the one whose probed endpoints match the request path; null when none or more than one does. */
 export function pickToolByPath(path: string | null, endpointsByTool: Map<string, string[]>): string | null {
   if (!path) return null;
@@ -204,7 +216,8 @@ export async function resolveToolRef(db: Db, ref: string): Promise<ToolRef> {
   if (names.length > 1) {
     const byTool = await endpointsForHost(db, host);
     const path = pathOf(ref);
-    const picked = pickToolByPath(path, byTool);
+    const hits = path ? [...byTool].filter(([, eps]) => matchEndpoint(path, eps) !== null).map(([n]) => n) : [];
+    const picked = pickToolByPath(path, byTool) ?? canonicalTool(hits.length ? hits : names);
     if (picked) {
       const tool = await resolveTool(db, picked);
       if (tool) return { tool, via: 'host' };

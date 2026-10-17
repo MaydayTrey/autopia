@@ -217,11 +217,14 @@ async function coverageFooter(db: Db, tool: string, allEndpoints: string[]): Pro
     return all.filter((t) => t.verified_claims > 0).map((t) => ({ name: t.name, hosts: t.hosts as string[] }));
   }).catch(() => [] as { name: string; hosts: string[] }[]);
   const rest = others.filter((t) => t.name !== tool);
-  const hosts = [...new Set(rest.flatMap((t) => t.hosts))].sort();
+  const myHosts = others.find((t) => t.name === tool)?.hosts ?? [];
+  const variants = rest.filter((t) => t.hosts.some((h) => myHosts.includes(h))).map((t) => t.name);
+  const hosts = [...new Set(rest.filter((t) => !variants.includes(t.name)).flatMap((t) => t.hosts))].sort();
   return [
     '',
     '## What this compendium covers',
     `- This API: ${allEndpoints.length} GET endpoint(s) probed (listed in this sheet). Any other path on this host is NOT covered; do not infer its behavior from these.`,
+    ...(variants.length ? [`- Same host, other variant(s): ${variants.join(', ')} (a different API version or configuration of the same service; this sheet is ${tool}, the default). Read one by passing its name as tool.`] : []),
     rest.length ? `- Other APIs: ${rest.length} (${hosts.join(', ')}). list_tools gives each with its hosts.` : '- Other APIs: none yet.',
     '- Not probed anywhere yet: write endpoints (POST/PUT/DELETE), request bodies, auth flows, hosts not listed above.',
     '- Fetch: get_tool_docs {tool, path?, brief?} for an endpoint; search_claims {query} for one question; get_tool_knowledge {tool, kind} for structured claims; get_divergences {tool}; request_target to ask for an uncovered public API (needs a key).',

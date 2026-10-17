@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // The plugin runs on plain Node from its own directory, so its helpers are .mjs, not TypeScript.
 // @ts-expect-error untyped JS module shipped inside the plugin
-import { buildContext, buildErrorContext, candidateText, detectFailure, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, sheetEndpoint, trimSheet, urlPathFor } from '../../plugin/scripts/lib.mjs';
+import { buildContext, buildErrorContext, candidateText, canonicalTools, detectFailure, hookOutput, hostIndex, matchHosts, parseMcpBody, resultText, setupContext, sheetEndpoint, trimSheet, urlPathFor } from '../../plugin/scripts/lib.mjs';
 
 const INDEX = hostIndex([
   { name: 'github-rest', hosts: ['api.github.com'] },
@@ -145,4 +145,20 @@ test('buildErrorContext: the failure, then compact matching claims within a budg
   assert.ok((ctx.match(/^- /gm) ?? []).length < 10, 'budget cut the list');
   assert.match(ctx, /search_claims \{"query":"<symptom>","tool":"api\.github\.com"\}/);
   assert.deepEqual(hookOutput('c', 'PostToolUse'), { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'c' } });
+});
+
+test('canonicalTools: the hook fetches the base tool only when a host has named variants', () => {
+  assert.deepEqual(canonicalTools(['github-rest', 'github-rest-2026-03-10']), ['github-rest']);
+  assert.deepEqual(canonicalTools(['open-meteo-forecast', 'open-meteo-elevation']), ['open-meteo-forecast', 'open-meteo-elevation']);
+  assert.deepEqual(canonicalTools(['one']), ['one']);
+  assert.deepEqual(canonicalTools(undefined), []);
+});
+
+test('unreachable: every baseline dead, or most trials dead, fails the run; a partial outage does not', async () => {
+  const { unreachable } = await import('../../src/worker/exercise.js');
+  const t = (mutationId: string, statusCode: number | null, errorText: string | null = null) => ({ mutationId, statusCode, errorText });
+  assert.match(unreachable([t('baseline', null, 'fetch: fetch failed'), t('wrong_type:id', 400), t('null_value:id', 400)])!, /all 1 baseline request/);
+  assert.equal(unreachable([t('baseline', 200), t('wrong_type:id', null, 'timeout'), t('null_value:id', 400)]), null);
+  assert.match(unreachable(Array.from({ length: 12 }, (_, i) => t(`m${i}`, i < 8 ? null : 200)))!, /8 of 12 requests/);
+  assert.equal(unreachable([]), null);
 });

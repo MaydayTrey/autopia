@@ -77,6 +77,22 @@ export async function runOne(input: TrialInput, opts: ExerciseOptions) {
   };
 }
 
+/**
+ * The reason to fail the run when the API could not be reached, else null. A run whose every
+ * baseline request died at the transport level (DNS, TLS, timeout) has observed nothing; letting it
+ * finish would replace a night's verified claims with an empty set (open-meteo-forecast, 2026-10-17:
+ * 108 claims -> 5) or burn an LLM pass on silence (jikan). A failed run keeps the previous
+ * finished run's claims current.
+ */
+export function unreachable(trials: Pick<Trial, 'mutationId' | 'statusCode' | 'errorText'>[]): string | null {
+  const baselines = trials.filter((t) => t.mutationId === 'baseline');
+  const deadBaselines = baselines.filter((t) => t.statusCode === null);
+  if (baselines.length && deadBaselines.length === baselines.length) return `API unreachable: all ${baselines.length} baseline request(s) failed at the transport level (${deadBaselines[0].errorText ?? 'no response'}); run failed so the previous claims stand`;
+  const dead = trials.filter((t) => t.statusCode === null).length;
+  if (trials.length >= 10 && dead / trials.length > 0.5) return `API unreachable: ${dead} of ${trials.length} requests failed at the transport level; run failed so the previous claims stand`;
+  return null;
+}
+
 export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpec[], target: TargetConfig, opts: ExerciseOptions = {}): Promise<Trial[]> {
   const plan = planAll(endpoints, target, opts.maxTrials ?? target.max_trials ?? 500);
   const concurrency = opts.concurrency ?? target.rate?.concurrency ?? 2;
@@ -139,6 +155,8 @@ export async function exercise(db: Db, testRunId: number, endpoints: EndpointSpe
     throw abortErr;
   }
   const trials = results.filter((r): r is Trial => !!r);
+  const dead = unreachable(trials);
+  if (dead) throw new Error(dead);
   const rateLimited = trials.filter((t) => t.errorText === 'rate_limited').length;
   if (rateLimited) log.warn('exercise', `${rateLimited} trial(s) ended rate-limited; claims will skip them`);
   log.info('exercise', `${trials.length} trials logged`);

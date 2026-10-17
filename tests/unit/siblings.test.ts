@@ -56,3 +56,30 @@ test('crossReference applies sibling tagging and counts it separately from spec 
   assert.equal(tagged.diverges_from_sibling, true);
   assert.equal(tagged.diverges_from_spec, false);
 });
+
+test('tagAgainstSiblings: a sibling that covers the same endpoint is compared on that endpoint only (two API versions of one service)', () => {
+  // github-rest-2026-03-10 accepts "since"=not-a-date on /commits (empty list) and rejects it on /issues (422), exactly like github-rest.
+  const siblings: SiblingIndex = new Map([
+    [
+      'rule:datetime_invalid:since',
+      [
+        { tool: 'github-rest-2026-03-10', verdict: 'accepts', statement: 'commits', endpoint: 'GET /repos/{owner}/{repo}/commits' },
+        { tool: 'github-rest-2026-03-10', verdict: 'rejects', statement: 'issues', endpoint: 'GET /repos/{owner}/{repo}/issues' },
+      ],
+    ],
+  ]);
+  const commits = tagAgainstSiblings(c({ claim_key: 'rule:datetime_invalid:get_repos_owner_repo_commits:since', endpoint: 'GET /repos/{owner}/{repo}/commits', verdict: 'accepts' }), siblings);
+  assert.equal(commits.diverges_from_sibling, undefined, 'same endpoint, same verdict: no disagreement');
+  const issues = tagAgainstSiblings(c({ claim_key: 'rule:datetime_invalid:get_repos_owner_repo_issues:since', endpoint: 'GET /repos/{owner}/{repo}/issues', verdict: 'rejects' }), siblings);
+  assert.equal(issues.diverges_from_sibling, undefined);
+  // A genuine version difference on the same endpoint is still flagged.
+  const flipped = tagAgainstSiblings(c({ claim_key: 'rule:datetime_invalid:get_repos_owner_repo_commits:since', endpoint: 'GET /repos/{owner}/{repo}/commits', verdict: 'rejects' }), siblings);
+  assert.equal(flipped.sibling_note, 'github-rest-2026-03-10: accepts');
+  // The sibling covers the endpoint but has no claim for this rule there: nothing to compare, no flag.
+  const releases = tagAgainstSiblings(c({ claim_key: 'rule:datetime_invalid:get_repos_owner_repo_releases:since', endpoint: 'GET /repos/{owner}/{repo}/releases', verdict: 'rejects' }), new Map([...siblings, ['rule:extra_field:-', [{ tool: 'github-rest-2026-03-10', verdict: 'accepts', statement: 'r', endpoint: 'GET /repos/{owner}/{repo}/releases' }]]]));
+  assert.equal(releases.diverges_from_sibling, undefined);
+  // Siblings with different endpoint shapes (forecast vs marine) still compare across endpoints.
+  const shaped: SiblingIndex = new Map([['rule:extra_field:-', [{ tool: 'marine', verdict: 'rejects', statement: 'm', endpoint: 'GET /v1/marine' }]]]);
+  const extra = tagAgainstSiblings(c({ claim_key: 'rule:extra_field:get_v1_forecast:-', endpoint: 'GET /v1/forecast', verdict: 'accepts' }), shaped);
+  assert.equal(extra.sibling_note, 'marine: rejects');
+});

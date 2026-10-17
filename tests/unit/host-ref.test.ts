@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostOf, matchEndpoint, pathOf, pickToolByPath } from '../../src/db/queries.js';
+import { canonicalTool, hostOf, matchEndpoint, pathOf, pickToolByPath } from '../../src/db/queries.js';
 
 test('hostOf: what an agent passes as `tool` — a name stays a name; a host or URL yields the host (with port)', () => {
   // Plain tool names: not hosts.
@@ -34,4 +34,12 @@ test('pickToolByPath: on a host shared by several tools, the request path picks 
   // Template segments match anything; the most literal match wins.
   assert.equal(matchEndpoint('/repos/github/rest-api-description/issues', ['GET /repos/{owner}/{repo}/issues', 'GET /repos/{owner}/{repo}/commits']), 'GET /repos/{owner}/{repo}/issues');
   assert.equal(pathOf('https://api.open-meteo.com/v1/forecast?latitude=52'), '/v1/forecast');
+});
+
+test('canonicalTool: a base tool wins over its named variants; unrelated names stay ambiguous', () => {
+  assert.equal(canonicalTool(['github-rest', 'github-rest-2026-03-10']), 'github-rest');
+  assert.equal(canonicalTool(['github-rest-2026-03-10', 'github-rest']), 'github-rest');
+  assert.equal(canonicalTool(['open-meteo-elevation', 'open-meteo-forecast']), null, 'siblings, not variants');
+  assert.equal(canonicalTool(['a', 'ab']), null, 'a prefix without the dash is not a variant');
+  assert.equal(canonicalTool(['only']), 'only');
 });

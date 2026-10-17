@@ -68,6 +68,13 @@ export function urlPathFor(text, host) {
   return p || null;
 }
 
+/** Among tools sharing a host, the base one over its named variants ("github-rest" over "github-rest-2026-03-10"); all of them when the names are unrelated. */
+export function canonicalTools(tools) {
+  if (!Array.isArray(tools) || tools.length < 2) return tools ?? [];
+  const base = [...tools].sort((a, b) => a.length - b.length)[0];
+  return tools.every((n) => n === base || n.startsWith(base + '-')) ? [base] : tools;
+}
+
 /** The endpoint a scoped sheet is about, from its title line; null for a whole-tool sheet. */
 export function sheetEndpoint(markdown) {
   const m = markdown.match(/^# \S+: verified behavior for (\S+ \S+)/m);

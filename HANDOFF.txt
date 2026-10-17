@@ -145,6 +145,75 @@ REVIEWER ROUND 4 (2026-10-12, an agent's assessment after dogfooding)
   versions become visible. Not run locally (live runs are Trey's call);
   the nightly run-all picks it up with the Actions GITHUB_TOKEN. Delete the
   file to opt out.
+REVIEWER ROUND 5 (2026-10-17, an agent dogfooding the live server) + fixes
+  1. REGRESSION (mine, from the 2026-03-10 target): api.github.com and any
+     GitHub URL resolved as "2 tools cover api.github.com" because both tools
+     probe the same endpoints, so the path could not choose. FIXED:
+     canonicalTool() picks the base name over "base-<qualifier>" variants
+     (github-rest over github-rest-2026-03-10); the hook does the same
+     (canonicalTools) so it injects one sheet, not two; the sheet footer
+     lists "Same host, other variant(s)" so the variant stays discoverable
+     by name. Verified against the hosted DB: bare host, URL with query, and
+     an unprobed GitHub path all resolve to github-rest.
+  2. BUG: sibling comparison compared rule+param ACROSS endpoints, so
+     github-rest and github-rest-2026-03-10 each claimed the other "rejects"
+     since=not-a-date on /commits (the other's /issues claim). FIXED in
+     crossref.tagAgainstSiblings: per sibling tool, same-endpoint entries
+     only when it has them; if the sibling covers the endpoint but has no
+     such claim there, nothing is compared; different-shaped siblings
+     (forecast vs marine) still compare across endpoints. SiblingIndex
+     entries now carry endpoint. The wrong sibling notes stored on the
+     2026-10-17 runs clear on the next nightly run.
+  3. DATA LOSS GUARD: open-meteo-forecast went 108 -> 5 claims on 2026-10-17
+     because the BASELINE request died at the transport level ("fetch
+     failed") and the run still "finished", replacing the previous night's
+     claims with carried-only. jikan has 182 trials, all transport failures
+     (api.jikan.moe unreachable from here, HTTP 000 after 20s), 0 claims,
+     and still spent an LLM pass. FIXED: exercise() throws when every
+     baseline trial has no response, or >50% of >=10 trials have none; the
+     run is marked failed, so latestClaimsForVersion keeps the last good
+     run. open-meteo-forecast recovers on the next successful nightly.
+  4. list_tools now hides tools with 0 verified claims (jikan). The row
+     stays in the DB; it reappears if a run ever succeeds. Consider deleting
+     tool #8 if jikan stays unreachable.
+  5. Reviewer item "URL with query string said not covered": could not
+     reproduce; most likely the ambiguity error above read as "not covered".
+     Re-test after deploy: get_tool_docs {"tool":"https://api.github.com/
+     repos/github/rest-api-description/issues?since=yesterday&per_page=200"}.
+  OPEN from this round: freshness labels on claims (verified_at exists;
+  show "re-verified N days ago" in brief, flag stale); client-ready output
+  (rules list / typed wrapper from claims); write endpoints; coverage.
+
+THE ORIGINAL IDEA, RESTATED (Trey, 2026-10-17): test APIs the way programs
+USE them and learn what the docs never say, not only where the docs are
+wrong along their own lines. Today's battery mutates one parameter at a
+time from the spec; "expected" always comes from the spec. The next battery
+("SCENARIO battery") gets "expected" from INVARIANTS that must hold for any
+sane API, so it needs no doc entry to compare against:
+  S1 pagination completeness: walk every page (page= and Link/cursor); each
+     id exactly once; two walks agree; page N by number == page N by Link.
+  S2 list/detail consistency: item fields in the list vs the detail
+     endpoint (which fields are computed, truncated, stale).
+  S3 conditional requests: ETag / If-None-Match -> 304? Does a 304 cost
+     rate limit (x-ratelimit-remaining delta)? If-Modified-Since honored?
+  S4 filter composition: result(A&B) subset of result(A) ∩ result(B);
+     filters that silently cancel; filters that change paging.
+  S5 sort contract: sort=X really sorted by X; ties stable; direction.
+  S6 rate-limit truth: remaining decrements 1 per request; reset accurate;
+     429 body and retry-after; secondary limits on bursts.
+  S7 identity/encoding: unicode, dots, leading dashes, percent-encoding and
+     case in path params; redirects for renamed/transferred resources.
+  S8 boundaries: search's 1,000-result cap, per_page 100 vs 101, last+1.
+  Mechanism: a scenario = plan -> N requests (state flows: ids from earlier
+  responses) -> invariant checks -> claims with evidence trial ids, exactly
+  like rule claims; VERIFY re-runs the scenario; diff/carry unchanged. New
+  pieces: a stateful multi-request executor with a per-scenario budget, a
+  'scenario' claim source, a sheet section "How it behaves in use". LLM
+  role: propose scenarios + invariants per endpoint from spec + baseline
+  responses (one pass); the invariant library stays deterministic. Read-only
+  scenarios need no accounts, so this comes BEFORE the write battery.
+  Suggested order: S1, S3, S6 first (cheapest, most reused by agents).
+
   HOOK FALSE POSITIVES seen while dogfooding (fixed in plugin 0.3.3): the
   pre hook matched api.github.com inside a raw.githubusercontent.com PATH
   (matcher now rejects a host preceded by "/"); the post hook treated grep

@@ -24,7 +24,7 @@ export interface CrossRefResult {
 }
 
 /** Verified claims of sibling tools, keyed by siblingKey (see claims.ts). */
-export type SiblingIndex = Map<string, { tool: string; verdict: string; statement: string }[]>;
+export type SiblingIndex = Map<string, { tool: string; verdict: string; statement: string; endpoint?: string }[]>;
 
 export function crossReference(claims: CandidateClaim[], endpoints: EndpointSpec[], siblings: SiblingIndex = new Map()): CrossRefResult {
   const params = new Map<string, Map<string, ParamSpec>>();
@@ -91,11 +91,35 @@ export function tagAgainstSiblings(c: CandidateClaim, siblings: SiblingIndex): C
   const key = siblingKey(c.claim_key, c.source);
   if (!key) return c;
   const others = siblings.get(key) ?? [];
-  const disagree = others.filter((o) => o.verdict !== c.verdict && o.verdict !== 'observes');
+  // Per sibling tool: when it has a claim for THIS endpoint (two API versions of GitHub share
+  // every endpoint), only that claim is comparable. "since" rejected on /issues says nothing
+  // about "since" accepted on /commits. Tools with different endpoints (forecast vs marine)
+  // still compare across endpoints, as before.
+  const covers = siblingEndpointCoverage(siblings);
+  const byTool = new Map<string, typeof others>();
+  for (const o of others) byTool.set(o.tool, [...(byTool.get(o.tool) ?? []), o]);
+  const comparable = [...byTool].flatMap(([tool, list]) => {
+    const same = list.filter((o) => o.endpoint === c.endpoint);
+    if (same.length) return same; // same endpoint: compare on it only
+    if (covers.get(tool)?.has(c.endpoint)) return []; // the sibling covers this endpoint but made no such claim there: nothing comparable
+    return list; // a differently shaped API: compare across endpoints
+  });
+  const disagree = comparable.filter((o) => o.verdict !== c.verdict && o.verdict !== 'observes');
   if (disagree.length === 0) return c;
   // One entry per tool+verdict: a sibling with six endpoints should not be listed six times.
   const note = [...new Set(disagree.map((o) => `${o.tool}: ${o.verdict}`))].join('; ');
   return { ...c, diverges_from_sibling: true, sibling_note: note };
+}
+
+/** Which endpoints each sibling tool has any claim on, from the whole index; computed once per index. */
+const coverageCache = new WeakMap<SiblingIndex, Map<string, Set<string>>>();
+function siblingEndpointCoverage(index: SiblingIndex): Map<string, Set<string>> {
+  const hit = coverageCache.get(index);
+  if (hit) return hit;
+  const out = new Map<string, Set<string>>();
+  for (const list of index.values()) for (const o of list) if (o.endpoint) (out.get(o.tool) ?? out.set(o.tool, new Set()).get(o.tool)!).add(o.endpoint);
+  coverageCache.set(index, out);
+  return out;
 }
 
 /** Mechanical spec comparison where the spec has an opinion. */

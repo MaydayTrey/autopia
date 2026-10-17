@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { buildContext, candidateText, hookOutput, matchHosts, setupContext, sheetEndpoint, urlPathFor } from './lib.mjs';
+import { buildContext, candidateText, canonicalTools, hookOutput, matchHosts, setupContext, sheetEndpoint, urlPathFor } from './lib.mjs';
 import { dataDir, debug, hosts, readInput, rpc, session } from './client.mjs';
 
 const SHEET_TTL_MS = 6 * 60 * 60 * 1000;
@@ -53,7 +53,7 @@ async function main() {
   const sheets = [];
   let unauthorized = false;
   for (const m of wanted) {
-    for (const tool of m.tools) {
+    for (const tool of canonicalTools(m.tools)) {
       try {
         const markdown = await sheet(tool, m.path);
         const endpoint = sheetEndpoint(markdown);
