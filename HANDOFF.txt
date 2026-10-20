@@ -366,9 +366,23 @@ sane API, so it needs no doc entry to compare against:
   (page N+1's first key >= page N's last, no duplicates across pages): a
   natural merge of S1 and S5, not built. PO: three failing nights should
   auto-pause a target, not only report (not built).
-  NEXT: widen the GitHub search baseline query (one line); search_claims as
-  scoped Markdown; GitHub detail endpoints into the target; encoding/
-  boundary scenario. Search
+  NEON 5 GB TRANSFER LIMIT HIT 2026-10-20 (Trey). Storage is 86 MB (trials
+  58 MB, claims 16 MB); the cap is data TRANSFER (reads). Measured: the
+  daily site build re-read every tool's claims + full evidence trials
+  (response bodies) once per endpoint page: ~50 MB/day; list_tools loaded
+  every claim row (~1 MB/call); every uncached get_tool_docs/knowledge
+  loaded full trial rows (GitHub ~1.5 MB); plus this week's ad-hoc docs/
+  health/probe/reviewer traffic against the hosted DB (dozens of MB). FIXED:
+  trialsByIds slim mode (no response/signature) for evidence unless a keyed
+  verbose caller asks for previews; renderToolDocs accepts pre-loaded
+  knowledge and the site build loads once per tool (~2 MB/day); listTools
+  counts in SQL; memo TTL 10 min -> 2 h. Not changed: the nightly pipeline's
+  own reads (small) and trial storage (1.9 KB/trial avg). The counter resets
+  monthly; until then reads may be throttled or refused by Neon. For
+  experiments use a local PGlite dir (unset DATABASE_URL).
+  NEXT: widen the GitHub search baseline query (DONE 2026-10-20: q =
+  "org:github stars:>1000"); search_claims as scoped Markdown; GitHub detail
+  endpoints into the target; encoding/boundary scenario. Search
   endpoints need a baseline query with >1 page of results for S1 (github
   search q currently yields 1 repo; widen it).
 

@@ -73,7 +73,19 @@ export async function listTools(db: Db) {
   for (const t of tools) {
     const versions = await db.select().from(schema.toolVersions).where(eq(schema.toolVersions.toolId, t.id)).orderBy(desc(schema.toolVersions.id));
     const latest = versions[0];
-    const cur = latest ? await latestClaimsForVersion(db, latest.id) : null;
+    // Counts only: the newest finished run of the latest version that stored claims, aggregated in SQL.
+    const cur = latest
+      ? (
+          await db
+            .select({ runId: schema.testRuns.id, n: sql<number>`count(${schema.claims.id})::int`, div: sql<number>`sum(case when ${schema.claims.divergenceType} is not null then 1 else 0 end)::int`, newest: sql<Date>`max(${schema.claims.verifiedAt})` })
+            .from(schema.testRuns)
+            .innerJoin(schema.claims, eq(schema.claims.testRunId, schema.testRuns.id))
+            .where(and(eq(schema.testRuns.toolVersionId, latest.id), eq(schema.testRuns.status, 'finished')))
+            .groupBy(schema.testRuns.id)
+            .orderBy(desc(schema.testRuns.id))
+            .limit(1)
+        )[0] ?? null
+      : null;
     out.push({
       id: t.id,
       name: t.name,
@@ -83,11 +95,11 @@ export async function listTools(db: Db) {
       versions: versions.length,
       latest_version_id: latest?.id ?? null,
       latest_version_label: latest?.versionLabel ?? null,
-      verified_claims: cur?.claims.length ?? 0,
+      verified_claims: cur ? Number(cur.n) : 0,
       /** When any of the current claims last reproduced, and how many days ago; null when there are none. */
-      last_verified_at: cur?.claims.length ? new Date(Math.max(...cur.claims.map((c) => new Date(c.verifiedAt).getTime()))).toISOString() : null,
-      verified_days_ago: cur?.claims.length ? ageDays(new Date(Math.max(...cur.claims.map((c) => new Date(c.verifiedAt).getTime())))) : null,
-      divergences: cur?.claims.filter((c) => c.divergenceType).length ?? 0,
+      last_verified_at: cur?.newest ? new Date(cur.newest).toISOString() : null,
+      verified_days_ago: cur?.newest ? ageDays(new Date(cur.newest)) : null,
+      divergences: cur ? Number(cur.div) : 0,
       /** The API hosts this tool's trials hit: match the URL you are about to call against these. */
       hosts: cur?.runId ? await runHosts(db, cur.runId) : [],
     });
@@ -307,10 +319,22 @@ export async function runsForTool(db: Db, toolId: number): Promise<(TestRun & { 
   return rows.map((r) => ({ ...r.run, versionId: r.versionId }));
 }
 
-export async function trialsByIds(db: Db, ids: number[]): Promise<Map<number, Trial>> {
+/**
+ * Trials by id. `slim` leaves the response body and signature in the database: evidence shown to an
+ * agent needs the request line and status only, and the response column is most of the table.
+ * (The hosted database bills every byte read; the site build alone was pulling ~50 MB a day.)
+ */
+export async function trialsByIds(db: Db, ids: number[], opts: { slim?: boolean } = {}): Promise<Map<number, Trial>> {
   if (ids.length === 0) return new Map();
-  const rows = await db.select().from(schema.trials).where(inArray(schema.trials.id, ids));
-  return new Map(rows.map((t) => [t.id, t]));
+  if (!opts.slim) {
+    const rows = await db.select().from(schema.trials).where(inArray(schema.trials.id, ids));
+    return new Map(rows.map((t) => [t.id, t]));
+  }
+  const rows = await db
+    .select({ id: schema.trials.id, testRunId: schema.trials.testRunId, endpoint: schema.trials.endpoint, mutationType: schema.trials.mutationType, mutationId: schema.trials.mutationId, paramName: schema.trials.paramName, input: schema.trials.input, inputHash: schema.trials.inputHash, statusCode: schema.trials.statusCode, errorText: schema.trials.errorText, latencyMs: schema.trials.latencyMs, createdAt: schema.trials.createdAt })
+    .from(schema.trials)
+    .where(inArray(schema.trials.id, ids));
+  return new Map(rows.map((t) => [t.id, { ...t, response: { body: null }, signature: {} } as Trial]));
 }
 
 export async function trialById(db: Db, id: number): Promise<Trial | null> {
@@ -368,9 +392,9 @@ export async function suggestTools(db: Db, name: string, max = 3): Promise<strin
   return scored.slice(0, max).map((s) => s.n);
 }
 
-export async function withEvidence(db: Db, claims: Claim[]): Promise<ClaimView[]> {
+export async function withEvidence(db: Db, claims: Claim[], withPreviews = false): Promise<ClaimView[]> {
   const ids = [...new Set(claims.flatMap((c) => c.evidenceTrialIds))];
-  const trials = await trialsByIds(db, ids);
+  const trials = await trialsByIds(db, ids, { slim: !withPreviews });
   return claims.map((c) => ({
     id: c.id,
     claim_key: c.claimKey,
@@ -393,7 +417,7 @@ export async function withEvidence(db: Db, claims: Claim[]): Promise<ClaimView[]
 }
 
 /** Current verified claims for a tool (latest version by default), grouped by kind. */
-export async function toolKnowledge(db: Db, toolName: string, versionId?: number | null, onlyDivergences = false) {
+export async function toolKnowledge(db: Db, toolName: string, versionId?: number | null, onlyDivergences = false, withPreviews = false) {
   const tool = await resolveTool(db, toolName);
   if (!tool) return null;
   const version = await resolveVersion(db, tool.id, versionId);
@@ -402,7 +426,7 @@ export async function toolKnowledge(db: Db, toolName: string, versionId?: number
   let claims = cur?.claims ?? [];
   if (onlyDivergences) claims = claims.filter((c) => c.divergenceType);
   claims = [...claims].sort((a, b) => Number(!!b.divergenceType) - Number(!!a.divergenceType) || a.kind.localeCompare(b.kind) || a.claimKey.localeCompare(b.claimKey));
-  const views = await withEvidence(db, claims);
+  const views = await withEvidence(db, claims, withPreviews);
   const by_kind: Record<string, ClaimView[]> = {};
   for (const v of views) (by_kind[v.kind] ??= []).push(v);
   return { tool: tool.name, tier: tool.tier, version: { id: version.id, label: version.versionLabel, spec_url: version.specUrl, spec_hash: version.specHash, discovered_at: version.discoveredAt }, run_id: cur?.runId ?? null, claims: views, by_kind };

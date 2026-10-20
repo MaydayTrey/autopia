@@ -297,6 +297,18 @@ plain-text `.md` twin and names the MCP call that returns the same thing live.
 on demand) and publishes to GitHub Pages. One-time setup: repository Settings -> Pages ->
 Source: GitHub Actions. The site is at `https://<owner>.github.io/<repo>/`.
 
+## Data transfer (the metered resource)
+
+Neon's free plan bills reads: 5 GB of data transfer a month, against 0.5 GB of storage. The
+database itself is small (about 90 MB after ten days of nightly runs); what costs is reading
+it. Three readers used to dominate and were cut on 2026-10-20: evidence trials are now read
+without their response bodies unless a keyed caller asks for previews (the response column is
+most of the trials table); the site build loads each tool's knowledge once instead of once per
+page (about 50 MB a day down to 2 MB); the catalogue counts claims in SQL instead of loading
+every claim row; and the server's response cache lives two hours instead of ten minutes.
+Ad-hoc commands that render sheets or scan trials read the hosted database too, so point
+`DATABASE_URL` at a local PGlite directory for experiments.
+
 ## Kill switch
 
 If traffic ever gets out of hand, there are three levels, each reversible, none of which can

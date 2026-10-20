@@ -155,7 +155,8 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     async ({ tool, version, kind, limit, offset, verbose }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|all`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, false));
+      const previews = !!verbose && !anonCaller;
+      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|all${previews ? '|p' : ''}`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, false, previews));
       if (!k) return noSuchTool(tool);
       const all = kind ? k.claims.filter((c) => c.kind === kind) : k.claims;
       const start = offset ?? 0;
@@ -172,7 +173,8 @@ export function buildServer(ctx: ServerContext = { keyId: null, logCalls: false,
     async ({ tool, version, verbose }) => {
       const ref = await resolveName(tool);
       if ('error' in ref) return ref.error;
-      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|div`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, true));
+      const previews = !!verbose && !anonCaller;
+      const k = await memo(`knowledge|${ref.name}|${version ?? 'latest'}|div${previews ? '|p' : ''}`, async () => toolKnowledge(await getDb(), ref.name, version ?? null, true, previews));
       if (!k) return noSuchTool(tool);
       return text({ tool: k.tool, tier: k.tier, version: k.version, run_id: k.run_id, total: k.claims.length, claims: shape(k.claims, verbose) });
     },

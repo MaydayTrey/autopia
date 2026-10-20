@@ -8,7 +8,8 @@
  */
 const store = new Map<string, { until: number; value: Promise<unknown> }>();
 
-export const DEFAULT_TTL_MS = Number(process.env.AUTOPIA_CACHE_TTL_MS ?? 10 * 60 * 1000);
+// Claims change once a night; two hours keeps a hot sheet from being re-read from the (metered) database every ten minutes.
+export const DEFAULT_TTL_MS = Number(process.env.AUTOPIA_CACHE_TTL_MS ?? 2 * 60 * 60 * 1000);
 
 export function memo<T>(key: string, fn: () => Promise<T>, ttlMs = DEFAULT_TTL_MS): Promise<T> {
   const now = Date.now();

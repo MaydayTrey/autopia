@@ -259,8 +259,11 @@ function endpointIndex(tool: string, claims: ClaimView[], endpoints: string[], e
  *   descend to them by name instead of receiving them all. A path that matches nothing yields the
  *   unscoped sheet plus the index and a note.
  */
-export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean; path?: string | null; now?: Date } = {}): Promise<string | null> {
-  const k = await toolKnowledge(db, toolName, versionId ?? null, false);
+export type ToolKnowledge = NonNullable<Awaited<ReturnType<typeof toolKnowledge>>>;
+
+export async function renderToolDocs(db: Db, toolName: string, versionId?: number | null, opts: { brief?: boolean; path?: string | null; now?: Date; knowledge?: ToolKnowledge | null } = {}): Promise<string | null> {
+  // A caller rendering several sheets of one tool (the site build: whole sheet + one per endpoint) passes the knowledge once.
+  const k = opts.knowledge !== undefined ? opts.knowledge : await toolKnowledge(db, toolName, versionId ?? null, false);
   if (!k) return null;
   // Freshness: mark claims whose evidence has not reproduced for more than STALE_DAYS.
   const now = opts.now ?? new Date();

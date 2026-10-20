@@ -141,9 +141,10 @@ export async function buildSite(db: Db, opts: SiteOptions): Promise<{ pages: num
   for (const t of tools) {
     const dir = path.join(opts.out, t.name);
     await mkdir(dir, { recursive: true });
-    const full = await renderToolDocs(db, t.name, null);
-    if (!full) continue;
+    // One read per tool: the whole sheet and every endpoint sheet render from the same knowledge.
     const k = await toolKnowledge(db, t.name, null, false);
+    const full = await renderToolDocs(db, t.name, null, { knowledge: k });
+    if (!full) continue;
     const endpoints = [...new Set(k?.claims.map((c) => c.endpoint) ?? [])].sort();
     const hosts = (t.hosts as string[]) ?? [];
     const desc = `${t.name} (${hosts.join(', ')}): ${t.verified_claims} verified claims, ${t.divergences} contradict the spec, ${endpoints.length} endpoints probed.`;
@@ -155,7 +156,7 @@ export async function buildSite(db: Db, opts: SiteOptions): Promise<{ pages: num
     catalogue.push(`- [${t.name}](${t.name}/index.html) (${hosts.join(', ')}): ${t.verified_claims} claims, ${t.divergences} spec divergences, ${endpoints.length} endpoints`);
     for (const ep of endpoints) {
       const slug = endpointSlug(ep);
-      const scoped = await renderToolDocs(db, t.name, null, { path: ep.replace(/^[A-Z]+ /, '') });
+      const scoped = await renderToolDocs(db, t.name, null, { path: ep.replace(/^[A-Z]+ /, ''), knowledge: k });
       if (!scoped) continue;
       await writeFile(path.join(dir, `${slug}.md`), scoped);
       await writeFile(path.join(dir, `${slug}.html`), page(`${ep} on ${hosts[0] ?? t.name}: verified behavior`, `Verified behavior of ${ep} (${t.name}): spec contradictions, undocumented rules, errors, pagination, validation, each line citing reproduced trials.`, mdToHtml(scoped), { md: `${slug}.md`, live: `get_tool_docs {"tool":"${t.name}","path":"${ep.replace(/^[A-Z]+ /, '')}"}` }));
